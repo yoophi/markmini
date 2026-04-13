@@ -1,0 +1,125 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@plugin "@tailwindcss/typography";
+
+@theme {
+  --font-display: "Fraunces", "Iowan Old Style", "Palatino Linotype", serif;
+  --font-body: "IBM Plex Sans", "Segoe UI", sans-serif;
+
+  --color-background: #f5f1e8;
+  --color-foreground: #18222f;
+  --color-card: rgba(255, 255, 255, 0.78);
+  --color-card-foreground: #18222f;
+  --color-popover: rgba(255, 255, 255, 0.96);
+  --color-popover-foreground: #18222f;
+  --color-primary: #18222f;
+  --color-primary-foreground: #f8f6f0;
+  --color-secondary: #efe3cf;
+  --color-secondary-foreground: #3b3128;
+  --color-muted: #eadfce;
+  --color-muted-foreground: #6b6a65;
+  --color-accent: #dcc4a3;
+  --color-accent-foreground: #2e241e;
+  --color-destructive: #b93834;
+  --color-border: rgba(24, 34, 47, 0.12);
+  --color-input: rgba(24, 34, 47, 0.14);
+  --color-ring: rgba(24, 34, 47, 0.24);
+  --color-panel: rgba(250, 245, 236, 0.88);
+  --color-panel-strong: #233347;
+}
+
+:root {
+  font-family: var(--font-body);
+  color: var(--color-foreground);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.25), transparent 32%),
+    linear-gradient(135deg, #f8f4eb 0%, #f1ebdf 50%, #e9e0d1 100%);
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+
+  --background: var(--color-background);
+  --foreground: var(--color-foreground);
+  --card: var(--color-card);
+  --card-foreground: var(--color-card-foreground);
+  --popover: var(--color-popover);
+  --popover-foreground: var(--color-popover-foreground);
+  --primary: var(--color-primary);
+  --primary-foreground: var(--color-primary-foreground);
+  --secondary: var(--color-secondary);
+  --secondary-foreground: var(--color-secondary-foreground);
+  --muted: var(--color-muted);
+  --muted-foreground: var(--color-muted-foreground);
+  --accent: var(--color-accent);
+  --accent-foreground: var(--color-accent-foreground);
+  --destructive: var(--color-destructive);
+  --border: var(--color-border);
+  --input: var(--color-input);
+  --ring: var(--color-ring);
+  --panel: var(--color-panel);
+  --panel-strong: var(--color-panel-strong);
+  --radius: 1.25rem;
+}
+
+* {
+  border-color: var(--border);
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+button,
+input,
+textarea {
+  font: inherit;
+}
+
+.font-display {
+  font-family: var(--font-display);
+}
+
+.markdown-body {
+  @apply prose prose-slate mx-auto w-full max-w-none px-5 py-8 text-[var(--foreground)] sm:px-8 sm:py-10;
+  @apply prose-headings:scroll-mt-24 prose-headings:font-display prose-headings:text-[var(--panel-strong)];
+  @apply prose-h1:mt-0 prose-h1:text-4xl prose-h1:leading-tight;
+  @apply prose-h2:mt-12 prose-h2:text-2xl prose-h2:leading-tight;
+  @apply prose-h3:mt-8 prose-h3:text-xl prose-h3:leading-tight;
+  @apply prose-p:text-[15px] prose-p:leading-8 prose-li:text-[15px] prose-li:leading-8;
+  @apply prose-a:text-[var(--panel-strong)] prose-a:decoration-[var(--accent-foreground)]/30 prose-a:underline-offset-4;
+  @apply prose-strong:text-[var(--panel-strong)] prose-code:rounded-md prose-code:bg-[var(--secondary)] prose-code:px-1.5 prose-code:py-0.5 prose-code:text-[var(--panel-strong)];
+  @apply prose-pre:overflow-x-auto prose-pre:rounded-[1.25rem] prose-pre:border prose-pre:border-border/70 prose-pre:bg-[var(--panel-strong)] prose-pre:text-sm prose-pre:text-white prose-pre:shadow-inner;
+  @apply prose-blockquote:border-[var(--accent)] prose-blockquote:bg-white/50 prose-blockquote:px-4 prose-blockquote:py-1 prose-blockquote:font-normal prose-blockquote:italic;
+  @apply prose-table:my-6 prose-table:w-full prose-table:overflow-hidden prose-table:rounded-2xl prose-table:border prose-table:border-border/70 prose-table:bg-white/70;
+  @apply prose-thead:bg-[var(--secondary)] prose-th:border-b prose-th:border-border/50 prose-th:px-4 prose-th:py-3 prose-td:border-b prose-td:border-border/50 prose-td:px-4 prose-td:py-3;
+  @apply prose-hr:border-border/80;
+}
+
+.markdown-body :where(pre code)::before,
+.markdown-body :where(pre code)::after,
+.markdown-body :where(code):not(:where(pre code))::before,
+.markdown-body :where(code):not(:where(pre code))::after {
+  content: none;
+}
+
+.mermaid-block svg {
+  @apply h-auto max-w-full;
+}
+
+.mermaid-shell {
+  @apply my-6 overflow-hidden rounded-[1.4rem] border border-border/70 bg-white/75 p-4 shadow-sm;
+}
+
+.toc-scroll [data-radix-scroll-area-viewport] {
+  @apply max-h-[60vh];
+}
