@@ -1,7 +1,7 @@
 import { create } from "zustand";
 
 import { extractHeadings } from "@/lib/markdown";
-import { getInitialSession, readMarkdownFile } from "@/lib/tauri";
+import { getInitialSession, readMarkdownFile, refreshSession } from "@/lib/tauri";
 import type { HeadingItem } from "@/types/content";
 
 type BootstrapState = "idle" | "loading" | "ready" | "error";
@@ -23,6 +23,7 @@ interface AppStore {
   setSidebarOpen: (open: boolean) => void;
   bootstrap: () => Promise<void>;
   openDocument: (relativePath: string) => Promise<void>;
+  reloadCurrentDocument: () => Promise<void>;
   refresh: () => Promise<void>;
 }
 
@@ -104,11 +105,69 @@ export const useAppStore = create<AppStore>((set, get) => ({
       });
     }
   },
-  refresh: async () => {
+  reloadCurrentDocument: async () => {
     const current = get().selectedFile;
-    await get().bootstrap();
-    if (current && get().files.includes(current)) {
-      await get().openDocument(current);
+    if (!current) {
+      return;
+    }
+
+    try {
+      const document = await readMarkdownFile(current);
+      set({
+        selectedFile: document.relativePath,
+        document: {
+          state: "ready",
+          content: document.content,
+          headings:
+            document.headings.length > 0 ? document.headings : extractHeadings(document.content),
+          error: null,
+        },
+      });
+    } catch (error) {
+      set({
+        document: {
+          state: "error",
+          content: "",
+          headings: [],
+          error: error instanceof Error ? error.message : "문서를 다시 불러오지 못했습니다.",
+        },
+      });
+    }
+  },
+  refresh: async () => {
+    const previousSelection = get().selectedFile;
+
+    try {
+      const session = await refreshSession();
+      set({
+        bootstrapState: "ready",
+        error: null,
+        rootDir: session.rootDir,
+        files: session.files,
+      });
+
+      const nextSelection =
+        previousSelection && session.files.includes(previousSelection)
+          ? previousSelection
+          : session.selectedFile;
+
+      if (nextSelection) {
+        await get().openDocument(nextSelection);
+      } else {
+        set({
+          selectedFile: null,
+          document: {
+            state: "idle",
+            content: "",
+            headings: [],
+            error: null,
+          },
+        });
+      }
+    } catch (error) {
+      set({
+        error: error instanceof Error ? error.message : "세션을 새로고침하지 못했습니다.",
+      });
     }
   },
 }));

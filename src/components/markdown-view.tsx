@@ -1,5 +1,6 @@
 import ReactMarkdown from "react-markdown";
 import type { ReactNode } from "react";
+import rehypeHighlight from "rehype-highlight";
 import remarkGfm from "remark-gfm";
 
 import { MermaidBlock } from "@/components/mermaid-block";
@@ -14,6 +15,44 @@ interface MarkdownViewProps {
   onNavigate: (relativePath: string) => void;
 }
 
+const MERMAID_START_KEYWORDS = new Set([
+  "flowchart",
+  "graph",
+  "sequenceDiagram",
+  "classDiagram",
+  "stateDiagram",
+  "stateDiagram-v2",
+  "erDiagram",
+  "gantt",
+  "journey",
+  "pie",
+  "requirementDiagram",
+  "gitGraph",
+  "mindmap",
+  "timeline",
+  "quadrantChart",
+  "sankey-beta",
+  "xychart-beta",
+  "block-beta",
+  "packet-beta",
+  "architecture-beta",
+  "zenuml",
+  "C4Context",
+  "C4Container",
+  "C4Component",
+  "C4Dynamic",
+  "C4Deployment",
+]);
+
+function looksLikeMermaid(codeText: string): boolean {
+  const firstLine = codeText.split(/\r?\n/).find((line) => line.trim().length > 0);
+  if (!firstLine) {
+    return false;
+  }
+  const firstToken = firstLine.trim().split(/\s+/)[0];
+  return MERMAID_START_KEYWORDS.has(firstToken);
+}
+
 export function MarkdownView({ content, currentRelativePath, knownDocuments, onNavigate }: MarkdownViewProps) {
   const createHeadingId = createSlugger();
 
@@ -22,6 +61,7 @@ export function MarkdownView({ content, currentRelativePath, knownDocuments, onN
       <div className="markdown-body">
         <ReactMarkdown
           remarkPlugins={[remarkGfm]}
+          rehypePlugins={[[rehypeHighlight, { ignoreMissing: true }]]}
           components={{
           a: ({ href = "", children }) => {
             if (!currentRelativePath) {
@@ -81,10 +121,12 @@ export function MarkdownView({ content, currentRelativePath, knownDocuments, onN
             const child = Array.isArray(children) ? children[0] : children;
             if (child && typeof child === "object" && "props" in child) {
               const props = (child as { props?: { className?: string; children?: unknown } }).props;
-              const language = props?.className?.replace("language-", "") ?? "";
+              const classList = props?.className?.split(/\s+/) ?? [];
+              const languageToken = classList.find((token) => token.startsWith("language-"));
+              const language = languageToken?.slice("language-".length) ?? "";
               const codeText = extractCodeText(props?.children as ReactNode).replace(/\n$/, "");
 
-              if (language === "mermaid") {
+              if (language === "mermaid" || (!language && looksLikeMermaid(codeText))) {
                 return <MermaidBlock chart={codeText} />;
               }
             }

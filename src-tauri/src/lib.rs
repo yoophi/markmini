@@ -1,10 +1,15 @@
+use notify::{
+    event::ModifyKind, Config, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher,
+};
 use serde::Serialize;
 use std::{
     env,
     fs,
     path::{Path, PathBuf},
-    sync::Mutex,
+    sync::{mpsc, Mutex},
+    thread,
 };
+use tauri::{Emitter, Manager};
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -41,6 +46,19 @@ struct AppState {
     session: Mutex<SessionState>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct FsChangePayload {
+    changed_paths: Vec<String>,
+    tree_changed: bool,
+}
+
+struct WatcherGuard {
+    _watcher: Mutex<RecommendedWatcher>,
+}
+
+const FS_CHANGE_EVENT: &str = "markmini://fs-change";
+
 #[tauri::command]
 fn get_initial_session(state: tauri::State<'_, AppState>) -> Result<InitialSession, String> {
     let session = state
@@ -52,6 +70,31 @@ fn get_initial_session(state: tauri::State<'_, AppState>) -> Result<InitialSessi
         root_dir: session.root_dir.to_string_lossy().to_string(),
         files: session.files.clone(),
         selected_file: session.selected_file.clone(),
+    })
+}
+
+#[tauri::command]
+fn refresh_session(state: tauri::State<'_, AppState>) -> Result<InitialSession, String> {
+    let mut session = state
+        .session
+        .lock()
+        .map_err(|_| "failed to acquire session lock".to_string())?;
+
+    let mut files = collect_markdown_files(&session.root_dir)?;
+    files.sort();
+
+    let selected_file = match &session.selected_file {
+        Some(current) if files.iter().any(|entry| entry == current) => Some(current.clone()),
+        _ => pick_default_document(&files),
+    };
+
+    session.files = files.clone();
+    session.selected_file = selected_file.clone();
+
+    Ok(InitialSession {
+        root_dir: session.root_dir.to_string_lossy().to_string(),
+        files,
+        selected_file,
     })
 }
 
@@ -80,15 +123,128 @@ fn read_markdown_file(relative_path: String, state: tauri::State<'_, AppState>) 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let session = resolve_session_state().expect("failed to resolve launch target");
+    let root_dir = session.root_dir.clone();
 
     tauri::Builder::default()
         .manage(AppState {
             session: Mutex::new(session),
         })
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![get_initial_session, read_markdown_file])
+        .setup(move |app| {
+            if let Err(error) = install_file_watcher(app, root_dir.clone()) {
+                eprintln!("failed to install file watcher for {}: {}", root_dir.display(), error);
+            }
+            Ok(())
+        })
+        .invoke_handler(tauri::generate_handler![
+            get_initial_session,
+            refresh_session,
+            read_markdown_file
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+fn install_file_watcher(app: &mut tauri::App, root_dir: PathBuf) -> Result<(), String> {
+    let app_handle = app.handle().clone();
+
+    let (tx, rx) = mpsc::channel::<notify::Result<Event>>();
+    let mut watcher = RecommendedWatcher::new(
+        move |res| {
+            let _ = tx.send(res);
+        },
+        Config::default(),
+    )
+    .map_err(|error| format!("failed to create watcher: {}", error))?;
+
+    watcher
+        .watch(&root_dir, RecursiveMode::Recursive)
+        .map_err(|error| format!("failed to watch {}: {}", root_dir.display(), error))?;
+
+    app.manage(WatcherGuard {
+        _watcher: Mutex::new(watcher),
+    });
+
+    let watch_root = root_dir.clone();
+    thread::spawn(move || {
+        while let Ok(result) = rx.recv() {
+            match result {
+                Ok(event) => {
+                    if let Some(payload) = classify_event(&event, &watch_root) {
+                        let _ = app_handle.emit(FS_CHANGE_EVENT, payload);
+                    }
+                }
+                Err(error) => {
+                    eprintln!("file watcher error: {}", error);
+                }
+            }
+        }
+    });
+
+    Ok(())
+}
+
+fn classify_event(event: &Event, root_dir: &Path) -> Option<FsChangePayload> {
+    let kind_is_tree = matches!(
+        event.kind,
+        EventKind::Create(_) | EventKind::Remove(_) | EventKind::Modify(ModifyKind::Name(_))
+    );
+    let kind_is_modify = matches!(event.kind, EventKind::Modify(_));
+
+    if !kind_is_tree && !kind_is_modify {
+        return None;
+    }
+
+    let mut changed_paths = Vec::new();
+    let mut tree_changed = false;
+
+    for path in &event.paths {
+        if is_inside_skipped_dir(path, root_dir) {
+            continue;
+        }
+
+        if !is_markdown_file(path) {
+            continue;
+        }
+
+        if kind_is_tree {
+            tree_changed = true;
+        }
+
+        if let Some(relative) = path_to_relative(root_dir, path) {
+            if !changed_paths.iter().any(|existing| existing == &relative) {
+                changed_paths.push(relative);
+            }
+        }
+    }
+
+    if !tree_changed && changed_paths.is_empty() {
+        return None;
+    }
+
+    Some(FsChangePayload {
+        changed_paths,
+        tree_changed,
+    })
+}
+
+fn is_inside_skipped_dir(path: &Path, root_dir: &Path) -> bool {
+    let relative = match path.strip_prefix(root_dir) {
+        Ok(value) => value,
+        Err(_) => return false,
+    };
+
+    for component in relative.components() {
+        if let std::path::Component::Normal(name) = component {
+            if let Some(name) = name.to_str() {
+                if matches!(name, ".git" | "node_modules" | "target" | "dist" | ".next") {
+                    return true;
+                }
+            }
+        }
+    }
+
+    false
 }
 
 fn resolve_session_state() -> Result<SessionState, String> {
