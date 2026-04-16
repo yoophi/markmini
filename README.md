@@ -47,15 +47,8 @@ markmini ~/projects     # 두 번째 창 (같은 프로세스)
 
 ## 개발 실행
 
-의존성 설치:
-
 ```bash
 pnpm install
-```
-
-개발 모드 실행:
-
-```bash
 pnpm tauri dev
 ```
 
@@ -67,36 +60,7 @@ pnpm tauri dev -- ../markdeck
 pnpm tauri dev -- ./docs/example.md
 ```
 
-## 빌드
-
-### 로컬 빌드 (서명 없이)
-
-macOS에서 코드 서명/공증 없이 로컬용 앱을 빌드하려면:
-
-```bash
-# 서명·공증을 건너뛰고 빌드
-pnpm tauri build -- --no-bundle
-
-# .app 번들까지 생성하되 서명 없이 빌드
-APPLE_SIGNING_IDENTITY="-" pnpm tauri build
-```
-
-빌드된 바이너리는 `src-tauri/target/release/markmini`에 생성됩니다.  
-`.app` 번들은 `src-tauri/target/release/bundle/macos/markmini.app`에 생성됩니다.
-
-PATH에 추가하거나 심볼릭 링크를 만들어 사용할 수 있습니다:
-
-```bash
-ln -sf "$(pwd)/src-tauri/target/release/markmini" /usr/local/bin/markmini
-```
-
-## 검증 명령
-
-```bash
-pnpm typecheck
-pnpm build
-cargo check --manifest-path src-tauri/Cargo.toml
-```
+빌드·설치·macOS Gatekeeper 대응 등 자세한 내용은 [빌드 및 설치 가이드](./docs/build-and-install.md)를 참고하세요.
 
 ## 기술 스택
 
@@ -115,4 +79,5 @@ cargo check --manifest-path src-tauri/Cargo.toml
 
 ## 문서
 
-- 구현 설계 문서: [docs/implementation-plan.md](./docs/implementation-plan.md)
+- [빌드 및 설치 가이드](./docs/build-and-install.md)
+- [구현 설계 문서](./docs/implementation-plan.md)
