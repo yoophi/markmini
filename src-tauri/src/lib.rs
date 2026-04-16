@@ -606,11 +606,16 @@ fn collect_markdown_files(root_dir: &Path) -> Result<Vec<String>, String> {
 }
 
 fn visit_dir(root_dir: &Path, directory: &Path, files: &mut Vec<String>) -> Result<(), String> {
-    let entries = fs::read_dir(directory)
-        .map_err(|error| format!("failed to read directory {}: {}", directory.display(), error))?;
+    let entries = match fs::read_dir(directory) {
+        Ok(entries) => entries,
+        Err(_) => return Ok(()), // permission denied 등 — 건너뛰고 계속
+    };
 
     for entry_result in entries {
-        let entry = entry_result.map_err(|error| format!("failed to inspect directory entry: {}", error))?;
+        let entry = match entry_result {
+            Ok(entry) => entry,
+            Err(_) => continue,
+        };
         let path = entry.path();
 
         if path.is_dir() {
