@@ -422,9 +422,11 @@ fn is_inside_skipped_dir(path: &Path, root_dir: &Path) -> bool {
 fn resolve_target_from_args(raw_arg: Option<&str>, cwd: &Path) -> Result<PathBuf, String> {
     let canonical = match raw_arg {
         Some(value) if !value.is_empty() => resolve_arg_path(value, cwd)?,
-        _ => cwd
-            .canonicalize()
-            .map_err(|error| format!("failed to resolve directory {}: {}", cwd.display(), error))?,
+        _ => {
+            let dir = sensible_default_dir(cwd);
+            dir.canonicalize()
+                .map_err(|error| format!("failed to resolve directory {}: {}", dir.display(), error))?
+        }
     };
 
     if canonical.is_dir() || is_markdown_file(&canonical) {
@@ -435,6 +437,22 @@ fn resolve_target_from_args(raw_arg: Option<&str>, cwd: &Path) -> Result<PathBuf
             canonical.display()
         ))
     }
+}
+
+/// Finder/.app 실행 시 cwd가 `/`인 경우 사용자 홈 디렉터리로 대체합니다.
+fn sensible_default_dir(cwd: &Path) -> PathBuf {
+    if cwd.parent().is_some() && cwd != Path::new("/") {
+        return cwd.to_path_buf();
+    }
+
+    if let Some(home) = env::var_os("HOME") {
+        let home_path = PathBuf::from(home);
+        if home_path.is_dir() {
+            return home_path;
+        }
+    }
+
+    cwd.to_path_buf()
 }
 
 fn build_session_state(target: PathBuf) -> Result<SessionState, String> {
