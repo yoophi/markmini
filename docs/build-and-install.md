@@ -57,20 +57,31 @@ APPLE_SIGNING_IDENTITY="-" pnpm tauri build
 cp -R src-tauri/target/release/bundle/macos/markmini.app /Applications/
 ```
 
-복사 직후 macOS가 `com.apple.provenance` 확장 속성을 붙여 Gatekeeper가 실행을 차단합니다. 이 속성을 제거해야 Finder/Dock에서 정상 실행됩니다:
+### Gatekeeper 허용 (macOS Sequoia 이상)
 
-```bash
-xattr -cr /Applications/markmini.app
-```
+공증(notarization)되지 않은 앱은 macOS가 Finder 실행을 차단합니다. macOS Sequoia(15.x)부터는 `com.apple.provenance` 확장 속성이 SIP에 의해 보호되어 `xattr -cr`로도 제거되지 않습니다.
 
-> **왜 필요한가?** macOS는 공증(notarization)되지 않은 앱이 `/Applications`로 복사되면 provenance 속성을 추가합니다. 이 속성이 있으면 Finder에서 더블클릭 시 "개발자를 확인할 수 없습니다" 오류가 발생합니다. 터미널에서 바이너리를 직접 실행하면(`/Applications/markmini.app/Contents/MacOS/markmini`) Gatekeeper를 우회하므로 문제가 없지만, 일반적인 앱 실행 방식을 위해서는 속성 제거가 필요합니다.
+**Finder 우클릭으로 허용하기 (권장):**
+
+1. Finder에서 `/Applications/markmini.app`을 **우클릭** (또는 Control+클릭)
+2. 컨텍스트 메뉴에서 **"열기"** 선택
+3. 경고 대화상자에서 **"열기"** 클릭
+
+한 번만 하면 이후로는 더블클릭으로도 정상 실행됩니다.
+
+**시스템 설정에서 허용하기:**
+
+1. Finder에서 더블클릭 시도 (차단됨)
+2. **시스템 설정 > 개인정보 보호 및 보안** 이동
+3. 하단의 "markmini" 차단 알림에서 **"확인 없이 열기"** 클릭
+
+> **참고:** 터미널에서 바이너리를 직접 실행하면(`/Applications/markmini.app/Contents/MacOS/markmini` 또는 `markmini <path>`) Gatekeeper를 거치지 않으므로 이 과정이 필요 없습니다.
 
 빌드·설치를 한 번에 하려면:
 
 ```bash
 APPLE_SIGNING_IDENTITY="-" pnpm tauri build \
-  && cp -R src-tauri/target/release/bundle/macos/markmini.app /Applications/ \
-  && xattr -cr /Applications/markmini.app
+  && cp -R src-tauri/target/release/bundle/macos/markmini.app /Applications/
 ```
 
 ### PATH에 CLI 바이너리 등록
