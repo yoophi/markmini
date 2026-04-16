@@ -166,9 +166,16 @@ pub fn run() {
     let raw_arg = env::args().nth(1);
     let target = resolve_target_from_args(raw_arg.as_deref(), &current_dir)
         .expect("failed to resolve launch target");
-    let initial_session =
-        build_session_state(target).expect("failed to build initial session");
-    let initial_root_dir = initial_session.root_dir.clone();
+
+    // Determine root_dir and optional selected file hint without scanning.
+    let (initial_root_dir, selected_hint) = split_target(target);
+
+    // Start with an empty session — the window shows immediately.
+    let initial_session = SessionState {
+        root_dir: initial_root_dir.clone(),
+        files: Vec::new(),
+        selected_file: None,
+    };
 
     let mut sessions = HashMap::new();
     sessions.insert("main".to_string(), initial_session);
@@ -184,16 +191,13 @@ pub fn run() {
         }))
         .plugin(tauri_plugin_opener::init())
         .setup(move |app| {
-            let handle = app.handle();
-            if let Err(error) =
-                install_file_watcher(handle, "main", initial_root_dir.clone())
-            {
-                eprintln!(
-                    "failed to install file watcher for {}: {}",
-                    initial_root_dir.display(),
-                    error
-                );
-            }
+            // Scan files in the background, then notify the frontend.
+            let handle = app.handle().clone();
+            let root = initial_root_dir.clone();
+            let hint = selected_hint.clone();
+            thread::spawn(move || {
+                populate_session_async(&handle, "main", root, hint);
+            });
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -208,6 +212,70 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+fn split_target(target: PathBuf) -> (PathBuf, Option<PathBuf>) {
+    if target.is_dir() {
+        (target, None)
+    } else {
+        let parent = target
+            .parent()
+            .map(Path::to_path_buf)
+            .unwrap_or_else(|| PathBuf::from("."));
+        (parent, Some(target))
+    }
+}
+
+/// Scans files in the background, updates the session, notifies the frontend,
+/// and installs a file watcher. Runs on a dedicated thread.
+fn populate_session_async(
+    app_handle: &tauri::AppHandle,
+    label: &str,
+    root_dir: PathBuf,
+    selected_hint: Option<PathBuf>,
+) {
+    let mut files = match collect_markdown_files(&root_dir) {
+        Ok(files) => files,
+        Err(error) => {
+            eprintln!("failed to scan {}: {}", root_dir.display(), error);
+            Vec::new()
+        }
+    };
+    files.sort();
+
+    let selected_file = match &selected_hint {
+        Some(hint) => path_to_relative(&root_dir, hint),
+        None => pick_default_document(&files),
+    };
+
+    {
+        let state = app_handle.state::<AppState>();
+        let mut sessions = state.sessions.lock().expect("sessions lock poisoned");
+        if let Some(session) = sessions.get_mut(label) {
+            session.files = files;
+            session.selected_file = selected_file;
+        }
+    }
+
+    // Notify the frontend via the existing fs-change channel.
+    let _ = app_handle.emit_to(
+        label,
+        FS_CHANGE_EVENT,
+        FsChangePayload {
+            changed_paths: Vec::new(),
+            tree_changed: true,
+        },
+    );
+
+    // Install watcher after scan completes.
+    if let Err(error) = install_file_watcher(app_handle, label, root_dir.clone()) {
+        eprintln!(
+            "failed to install file watcher for {} ({}): {}",
+            label,
+            root_dir.display(),
+            error,
+        );
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -227,16 +295,7 @@ fn handle_new_instance(app: &tauri::AppHandle, argv: Vec<String>, cwd: String) {
         }
     };
 
-    let session = match build_session_state(target) {
-        Ok(session) => session,
-        Err(error) => {
-            eprintln!("failed to build session for new instance: {}", error);
-            focus_any_window(app);
-            return;
-        }
-    };
-
-    let root_dir = session.root_dir.clone();
+    let (root_dir, selected_hint) = split_target(target);
     let state = app.state::<AppState>();
     let count = state.window_counter.fetch_add(1, Ordering::SeqCst) + 1;
     let label = format!("markmini-{}", count);
@@ -249,10 +308,17 @@ fn handle_new_instance(app: &tauri::AppHandle, argv: Vec<String>, cwd: String) {
             .to_string_lossy()
     );
 
-    // Register session BEFORE creating the window so bootstrap finds it.
+    // Register an empty session BEFORE creating the window.
     {
         let mut sessions = state.sessions.lock().expect("sessions lock poisoned");
-        sessions.insert(label.clone(), session);
+        sessions.insert(
+            label.clone(),
+            SessionState {
+                root_dir: root_dir.clone(),
+                files: Vec::new(),
+                selected_file: None,
+            },
+        );
     }
 
     let builder = WebviewWindowBuilder::new(
@@ -266,9 +332,11 @@ fn handle_new_instance(app: &tauri::AppHandle, argv: Vec<String>, cwd: String) {
 
     match builder.build() {
         Ok(_) => {
-            if let Err(error) = install_file_watcher(app, &label, root_dir) {
-                eprintln!("failed to install watcher for {}: {}", label, error);
-            }
+            let handle = app.clone();
+            let lbl = label.clone();
+            thread::spawn(move || {
+                populate_session_async(&handle, &lbl, root_dir, selected_hint);
+            });
         }
         Err(error) => {
             eprintln!("failed to create window {}: {}", label, error);
@@ -453,33 +521,6 @@ fn sensible_default_dir(cwd: &Path) -> PathBuf {
     }
 
     cwd.to_path_buf()
-}
-
-fn build_session_state(target: PathBuf) -> Result<SessionState, String> {
-    let (root_dir, selected_candidate) = if target.is_dir() {
-        (target, None)
-    } else {
-        let parent = target
-            .parent()
-            .map(Path::to_path_buf)
-            .ok_or_else(|| format!("failed to resolve parent directory for {}", target.display()))?;
-        (parent, Some(target))
-    };
-
-    let mut files = collect_markdown_files(&root_dir)?;
-    files.sort();
-
-    let selected_file = if let Some(file_path) = selected_candidate {
-        path_to_relative(&root_dir, &file_path)
-    } else {
-        pick_default_document(&files)
-    };
-
-    Ok(SessionState {
-        root_dir,
-        files,
-        selected_file,
-    })
 }
 
 fn resolve_arg_path(raw_arg: &str, current_dir: &Path) -> Result<PathBuf, String> {
