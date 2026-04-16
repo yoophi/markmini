@@ -6,9 +6,11 @@
 ## 주요 기능
 
 - 로컬 디렉터리 기준 Markdown 파일 탐색
-- Markdown 본문 렌더링
+- Markdown 본문 렌더링 (syntax highlighting 포함)
 - TOC 표시 및 현재 섹션 추적
-- Mermaid 코드 블록 렌더링
+- Mermaid 코드 블록 자동 인식 및 렌더링
+- 파일 시스템 감시 — 파일 추가·삭제·수정 시 자동 새로고침
+- 멀티 윈도우 — 여러 경로를 각각 독립된 창으로 열기
 - Tauri 기반 로컬 데스크톱 실행
 
 제외한 기능:
@@ -32,6 +34,17 @@ markmini ./path/file.md
 - Markdown 파일을 넘기면 파일의 부모 디렉터리를 루트로 사용하고, 해당 파일을 초기 문서로 엽니다.
 - 인자가 없으면 현재 작업 디렉터리를 기준으로 시작합니다.
 
+### 멀티 윈도우
+
+이미 실행 중인 상태에서 다른 경로로 다시 실행하면 **새 창**이 열립니다.
+
+```bash
+markmini ~/docs &       # 첫 번째 창
+markmini ~/projects     # 두 번째 창 (같은 프로세스)
+```
+
+각 창은 독립된 파일 목록과 watcher를 가지며, 창을 닫으면 해당 세션이 정리됩니다.
+
 ## 개발 실행
 
 의존성 설치:
@@ -54,6 +67,29 @@ pnpm tauri dev -- ../markdeck
 pnpm tauri dev -- ./docs/example.md
 ```
 
+## 빌드
+
+### 로컬 빌드 (서명 없이)
+
+macOS에서 코드 서명/공증 없이 로컬용 앱을 빌드하려면:
+
+```bash
+# 서명·공증을 건너뛰고 빌드
+pnpm tauri build -- --no-bundle
+
+# .app 번들까지 생성하되 서명 없이 빌드
+APPLE_SIGNING_IDENTITY="-" pnpm tauri build
+```
+
+빌드된 바이너리는 `src-tauri/target/release/markmini`에 생성됩니다.  
+`.app` 번들은 `src-tauri/target/release/bundle/macos/markmini.app`에 생성됩니다.
+
+PATH에 추가하거나 심볼릭 링크를 만들어 사용할 수 있습니다:
+
+```bash
+ln -sf "$(pwd)/src-tauri/target/release/markmini" /usr/local/bin/markmini
+```
+
 ## 검증 명령
 
 ```bash
@@ -72,9 +108,10 @@ cargo check --manifest-path src-tauri/Cargo.toml
 - Tailwind Typography
 - Zustand
 - shadcn 스타일 컴포넌트
-- `react-markdown`
-- `remark-gfm`
+- `react-markdown` + `remark-gfm` + `rehype-highlight`
 - `mermaid`
+- `notify` (파일 시스템 감시)
+- `tauri-plugin-single-instance` (멀티 윈도우)
 
 ## 문서
 

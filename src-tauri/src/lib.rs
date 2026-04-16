@@ -3,13 +3,21 @@ use notify::{
 };
 use serde::Serialize;
 use std::{
+    collections::HashMap,
     env,
     fs,
     path::{Path, PathBuf},
-    sync::{mpsc, Mutex},
+    sync::{
+        atomic::{AtomicU32, Ordering},
+        mpsc, Mutex,
+    },
     thread,
 };
-use tauri::{Emitter, Manager};
+use tauri::{Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
+
+// ---------------------------------------------------------------------------
+// Data types
+// ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -43,7 +51,9 @@ struct SessionState {
 }
 
 struct AppState {
-    session: Mutex<SessionState>,
+    sessions: Mutex<HashMap<String, SessionState>>,
+    watchers: Mutex<HashMap<String, RecommendedWatcher>>,
+    window_counter: AtomicU32,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -53,18 +63,25 @@ struct FsChangePayload {
     tree_changed: bool,
 }
 
-struct WatcherGuard {
-    _watcher: Mutex<RecommendedWatcher>,
-}
-
 const FS_CHANGE_EVENT: &str = "markmini://fs-change";
 
+// ---------------------------------------------------------------------------
+// Tauri commands — all receive WebviewWindow to identify the calling window
+// ---------------------------------------------------------------------------
+
 #[tauri::command]
-fn get_initial_session(state: tauri::State<'_, AppState>) -> Result<InitialSession, String> {
-    let session = state
-        .session
+fn get_initial_session(
+    window: tauri::WebviewWindow,
+    state: tauri::State<'_, AppState>,
+) -> Result<InitialSession, String> {
+    let sessions = state
+        .sessions
         .lock()
-        .map_err(|_| "failed to acquire session lock".to_string())?;
+        .map_err(|_| "failed to acquire sessions lock".to_string())?;
+
+    let session = sessions
+        .get(window.label())
+        .ok_or_else(|| format!("no session for window {}", window.label()))?;
 
     Ok(InitialSession {
         root_dir: session.root_dir.to_string_lossy().to_string(),
@@ -74,11 +91,18 @@ fn get_initial_session(state: tauri::State<'_, AppState>) -> Result<InitialSessi
 }
 
 #[tauri::command]
-fn refresh_session(state: tauri::State<'_, AppState>) -> Result<InitialSession, String> {
-    let mut session = state
-        .session
+fn refresh_session(
+    window: tauri::WebviewWindow,
+    state: tauri::State<'_, AppState>,
+) -> Result<InitialSession, String> {
+    let mut sessions = state
+        .sessions
         .lock()
-        .map_err(|_| "failed to acquire session lock".to_string())?;
+        .map_err(|_| "failed to acquire sessions lock".to_string())?;
+
+    let session = sessions
+        .get_mut(window.label())
+        .ok_or_else(|| format!("no session for window {}", window.label()))?;
 
     let mut files = collect_markdown_files(&session.root_dir)?;
     files.sort();
@@ -99,14 +123,25 @@ fn refresh_session(state: tauri::State<'_, AppState>) -> Result<InitialSession, 
 }
 
 #[tauri::command]
-fn read_markdown_file(relative_path: String, state: tauri::State<'_, AppState>) -> Result<MarkdownDocument, String> {
-    let session = state
-        .session
+fn read_markdown_file(
+    relative_path: String,
+    window: tauri::WebviewWindow,
+    state: tauri::State<'_, AppState>,
+) -> Result<MarkdownDocument, String> {
+    let sessions = state
+        .sessions
         .lock()
-        .map_err(|_| "failed to acquire session lock".to_string())?;
+        .map_err(|_| "failed to acquire sessions lock".to_string())?;
+
+    let session = sessions
+        .get(window.label())
+        .ok_or_else(|| format!("no session for window {}", window.label()))?;
 
     if !session.files.iter().any(|entry| entry == &relative_path) {
-        return Err(format!("document is not available in the current root: {}", relative_path));
+        return Err(format!(
+            "document is not available in the current root: {}",
+            relative_path
+        ));
     }
 
     let file_path = session.root_dir.join(&relative_path);
@@ -120,21 +155,51 @@ fn read_markdown_file(relative_path: String, state: tauri::State<'_, AppState>) 
     })
 }
 
+// ---------------------------------------------------------------------------
+// Application entry point
+// ---------------------------------------------------------------------------
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let session = resolve_session_state().expect("failed to resolve launch target");
-    let root_dir = session.root_dir.clone();
+    let current_dir =
+        env::current_dir().expect("failed to resolve current directory");
+    let raw_arg = env::args().nth(1);
+    let target = resolve_target_from_args(raw_arg.as_deref(), &current_dir)
+        .expect("failed to resolve launch target");
+    let initial_session =
+        build_session_state(target).expect("failed to build initial session");
+    let initial_root_dir = initial_session.root_dir.clone();
+
+    let mut sessions = HashMap::new();
+    sessions.insert("main".to_string(), initial_session);
 
     tauri::Builder::default()
         .manage(AppState {
-            session: Mutex::new(session),
+            sessions: Mutex::new(sessions),
+            watchers: Mutex::new(HashMap::new()),
+            window_counter: AtomicU32::new(0),
         })
+        .plugin(tauri_plugin_single_instance::init(|app, argv, cwd| {
+            handle_new_instance(app, argv, cwd);
+        }))
         .plugin(tauri_plugin_opener::init())
         .setup(move |app| {
-            if let Err(error) = install_file_watcher(app, root_dir.clone()) {
-                eprintln!("failed to install file watcher for {}: {}", root_dir.display(), error);
+            let handle = app.handle();
+            if let Err(error) =
+                install_file_watcher(handle, "main", initial_root_dir.clone())
+            {
+                eprintln!(
+                    "failed to install file watcher for {}: {}",
+                    initial_root_dir.display(),
+                    error
+                );
             }
             Ok(())
+        })
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::Destroyed = event {
+                cleanup_window(window);
+            }
         })
         .invoke_handler(tauri::generate_handler![
             get_initial_session,
@@ -145,8 +210,105 @@ pub fn run() {
         .expect("error while running tauri application");
 }
 
-fn install_file_watcher(app: &mut tauri::App, root_dir: PathBuf) -> Result<(), String> {
-    let app_handle = app.handle().clone();
+// ---------------------------------------------------------------------------
+// Multi-window lifecycle
+// ---------------------------------------------------------------------------
+
+fn handle_new_instance(app: &tauri::AppHandle, argv: Vec<String>, cwd: String) {
+    let raw_arg = argv.get(1).map(|s| s.as_str());
+    let cwd_path = PathBuf::from(&cwd);
+
+    let target = match resolve_target_from_args(raw_arg, &cwd_path) {
+        Ok(target) => target,
+        Err(error) => {
+            eprintln!("failed to resolve new instance target: {}", error);
+            focus_any_window(app);
+            return;
+        }
+    };
+
+    let session = match build_session_state(target) {
+        Ok(session) => session,
+        Err(error) => {
+            eprintln!("failed to build session for new instance: {}", error);
+            focus_any_window(app);
+            return;
+        }
+    };
+
+    let root_dir = session.root_dir.clone();
+    let state = app.state::<AppState>();
+    let count = state.window_counter.fetch_add(1, Ordering::SeqCst) + 1;
+    let label = format!("markmini-{}", count);
+
+    let window_title = format!(
+        "markmini — {}",
+        root_dir
+            .file_name()
+            .unwrap_or(root_dir.as_os_str())
+            .to_string_lossy()
+    );
+
+    // Register session BEFORE creating the window so bootstrap finds it.
+    {
+        let mut sessions = state.sessions.lock().expect("sessions lock poisoned");
+        sessions.insert(label.clone(), session);
+    }
+
+    let builder = WebviewWindowBuilder::new(
+        app,
+        &label,
+        WebviewUrl::App("index.html".into()),
+    )
+    .title(&window_title)
+    .inner_size(1440.0, 920.0)
+    .min_inner_size(1080.0, 720.0);
+
+    match builder.build() {
+        Ok(_) => {
+            if let Err(error) = install_file_watcher(app, &label, root_dir) {
+                eprintln!("failed to install watcher for {}: {}", label, error);
+            }
+        }
+        Err(error) => {
+            eprintln!("failed to create window {}: {}", label, error);
+            let mut sessions = state.sessions.lock().expect("sessions lock poisoned");
+            sessions.remove(&label);
+            focus_any_window(app);
+        }
+    }
+}
+
+fn focus_any_window(app: &tauri::AppHandle) {
+    if let Some(window) = app.webview_windows().values().next() {
+        let _ = window.set_focus();
+    }
+}
+
+fn cleanup_window(window: &tauri::Window) {
+    let label = window.label();
+    let app = window.app_handle();
+    let state = app.state::<AppState>();
+
+    if let Ok(mut watchers) = state.watchers.lock() {
+        watchers.remove(label);
+    };
+    if let Ok(mut sessions) = state.sessions.lock() {
+        sessions.remove(label);
+    };
+}
+
+// ---------------------------------------------------------------------------
+// Per-window file watcher
+// ---------------------------------------------------------------------------
+
+fn install_file_watcher(
+    app_handle: &tauri::AppHandle,
+    window_label: &str,
+    root_dir: PathBuf,
+) -> Result<(), String> {
+    let handle = app_handle.clone();
+    let label = window_label.to_string();
 
     let (tx, rx) = mpsc::channel::<notify::Result<Event>>();
     let mut watcher = RecommendedWatcher::new(
@@ -161,21 +323,27 @@ fn install_file_watcher(app: &mut tauri::App, root_dir: PathBuf) -> Result<(), S
         .watch(&root_dir, RecursiveMode::Recursive)
         .map_err(|error| format!("failed to watch {}: {}", root_dir.display(), error))?;
 
-    app.manage(WatcherGuard {
-        _watcher: Mutex::new(watcher),
-    });
+    {
+        let state = handle.state::<AppState>();
+        let mut watchers = state
+            .watchers
+            .lock()
+            .map_err(|_| "watchers lock poisoned".to_string())?;
+        watchers.insert(label.clone(), watcher);
+    }
 
-    let watch_root = root_dir.clone();
+    let watch_root = root_dir;
+    let emit_label = label;
     thread::spawn(move || {
         while let Ok(result) = rx.recv() {
             match result {
                 Ok(event) => {
                     if let Some(payload) = classify_event(&event, &watch_root) {
-                        let _ = app_handle.emit(FS_CHANGE_EVENT, payload);
+                        let _ = handle.emit_to(&emit_label, FS_CHANGE_EVENT, payload);
                     }
                 }
                 Err(error) => {
-                    eprintln!("file watcher error: {}", error);
+                    eprintln!("file watcher error ({}): {}", emit_label, error);
                 }
             }
         }
@@ -247,8 +415,29 @@ fn is_inside_skipped_dir(path: &Path, root_dir: &Path) -> bool {
     false
 }
 
-fn resolve_session_state() -> Result<SessionState, String> {
-    let target = resolve_launch_target()?;
+// ---------------------------------------------------------------------------
+// Path resolution
+// ---------------------------------------------------------------------------
+
+fn resolve_target_from_args(raw_arg: Option<&str>, cwd: &Path) -> Result<PathBuf, String> {
+    let canonical = match raw_arg {
+        Some(value) if !value.is_empty() => resolve_arg_path(value, cwd)?,
+        _ => cwd
+            .canonicalize()
+            .map_err(|error| format!("failed to resolve directory {}: {}", cwd.display(), error))?,
+    };
+
+    if canonical.is_dir() || is_markdown_file(&canonical) {
+        Ok(canonical)
+    } else {
+        Err(format!(
+            "launch target must be a directory or markdown file: {}",
+            canonical.display()
+        ))
+    }
+}
+
+fn build_session_state(target: PathBuf) -> Result<SessionState, String> {
     let (root_dir, selected_candidate) = if target.is_dir() {
         (target, None)
     } else {
@@ -273,27 +462,6 @@ fn resolve_session_state() -> Result<SessionState, String> {
         files,
         selected_file,
     })
-}
-
-fn resolve_launch_target() -> Result<PathBuf, String> {
-    let raw_arg = env::args().nth(1);
-    let current_dir = env::current_dir().map_err(|error| format!("failed to resolve current directory: {}", error))?;
-
-    let canonical = match raw_arg {
-        Some(value) => resolve_arg_path(&value, &current_dir)?,
-        None => current_dir
-            .canonicalize()
-            .map_err(|error| format!("failed to resolve current directory {}: {}", current_dir.display(), error))?,
-    };
-
-    if canonical.is_dir() || is_markdown_file(&canonical) {
-        Ok(canonical)
-    } else {
-        Err(format!(
-            "launch target must be a directory or markdown file: {}",
-            canonical.display()
-        ))
-    }
 }
 
 fn resolve_arg_path(raw_arg: &str, current_dir: &Path) -> Result<PathBuf, String> {
@@ -368,6 +536,10 @@ fn dedupe_paths(paths: Vec<PathBuf>) -> Vec<PathBuf> {
     unique
 }
 
+// ---------------------------------------------------------------------------
+// File scanning
+// ---------------------------------------------------------------------------
+
 fn collect_markdown_files(root_dir: &Path) -> Result<Vec<String>, String> {
     let mut files = Vec::new();
     visit_dir(root_dir, root_dir, &mut files)?;
@@ -437,6 +609,10 @@ fn pick_default_document(files: &[String]) -> Option<String> {
 
     files.first().cloned()
 }
+
+// ---------------------------------------------------------------------------
+// Markdown helpers
+// ---------------------------------------------------------------------------
 
 fn extract_headings(markdown: &str) -> Vec<HeadingItem> {
     let mut counts = std::collections::HashMap::<String, usize>::new();
