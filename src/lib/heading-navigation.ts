@@ -14,3 +14,25 @@ export function focusHeadingById(id: string) {
 
   return true;
 }
+
+export function focusHeadingByIdWhenReady(id: string, timeoutMs = 1500) {
+  const startedAt = performance.now();
+
+  return new Promise<boolean>((resolve) => {
+    const tryFocus = () => {
+      if (focusHeadingById(id)) {
+        resolve(true);
+        return;
+      }
+
+      if (performance.now() - startedAt >= timeoutMs) {
+        resolve(false);
+        return;
+      }
+
+      window.requestAnimationFrame(tryFocus);
+    };
+
+    window.requestAnimationFrame(tryFocus);
+  });
+}

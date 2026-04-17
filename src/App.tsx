@@ -123,7 +123,7 @@ function App() {
                       content={document.content}
                       currentRelativePath={selectedFile}
                       knownDocuments={files}
-                      onNavigate={(file) => void openDocument(file)}
+                      onNavigate={openDocument}
                     />
                   ) : (
                     <EmptyReader />

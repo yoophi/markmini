@@ -5,7 +5,7 @@ import remarkGfm from "remark-gfm";
 
 import { MermaidBlock } from "@/components/mermaid-block";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { focusHeadingById } from "@/lib/heading-navigation";
+import { focusHeadingById, focusHeadingByIdWhenReady } from "@/lib/heading-navigation";
 import { createSlugger, extractCodeText } from "@/lib/markdown";
 import { resolveMarkdownHref } from "@/lib/path";
 
@@ -13,7 +13,7 @@ interface MarkdownViewProps {
   content: string;
   currentRelativePath: string | null;
   knownDocuments: string[];
-  onNavigate: (relativePath: string) => void;
+  onNavigate: (relativePath: string) => Promise<void> | void;
 }
 
 const MERMAID_START_KEYWORDS = new Set([
@@ -96,12 +96,10 @@ export function MarkdownView({ content, currentRelativePath, knownDocuments, onN
                 <button
                   type="button"
                   className="cursor-pointer bg-transparent p-0 text-left text-inherit"
-                  onClick={() => {
-                    onNavigate(resolved.path);
+                  onClick={async () => {
+                    await onNavigate(resolved.path);
                     if (resolved.hash) {
-                      setTimeout(() => {
-                        focusHeadingById(resolved.hash!);
-                      }, 50);
+                      await focusHeadingByIdWhenReady(resolved.hash);
                     }
                   }}
                 >
