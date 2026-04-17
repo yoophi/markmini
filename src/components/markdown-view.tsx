@@ -5,6 +5,7 @@ import remarkGfm from "remark-gfm";
 
 import { MermaidBlock } from "@/components/mermaid-block";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { focusHeadingById, focusHeadingByIdWhenReady } from "@/lib/heading-navigation";
 import { createSlugger, extractCodeText } from "@/lib/markdown";
 import { resolveMarkdownHref } from "@/lib/path";
 
@@ -12,7 +13,7 @@ interface MarkdownViewProps {
   content: string;
   currentRelativePath: string | null;
   knownDocuments: string[];
-  onNavigate: (relativePath: string) => void;
+  onNavigate: (relativePath: string) => Promise<void> | void;
 }
 
 const MERMAID_START_KEYWORDS = new Set([
@@ -44,6 +45,23 @@ const MERMAID_START_KEYWORDS = new Set([
   "C4Deployment",
 ]);
 
+const markdownClassName = [
+  "prose prose-slate mx-auto w-full max-w-none px-5 py-8 text-foreground sm:px-8 sm:py-10",
+  "prose-headings:scroll-mt-24 prose-headings:font-display prose-headings:text-primary prose-headings:focus:outline-none prose-headings:focus-visible:ring-2 prose-headings:focus-visible:ring-ring",
+  "prose-h1:mt-0 prose-h1:text-4xl prose-h1:leading-tight",
+  "prose-h2:mt-12 prose-h2:text-2xl prose-h2:leading-tight",
+  "prose-h3:mt-8 prose-h3:text-xl prose-h3:leading-tight",
+  "prose-p:text-[15px] prose-p:leading-8 prose-li:text-[15px] prose-li:leading-8",
+  "prose-a:text-primary prose-a:decoration-accent-foreground/30 prose-a:underline-offset-4",
+  "prose-strong:text-primary prose-code:rounded-md prose-code:bg-secondary prose-code:px-1.5 prose-code:py-0.5 prose-code:text-primary",
+  "prose-pre:overflow-x-auto prose-pre:rounded-lg prose-pre:border prose-pre:border-border prose-pre:bg-primary prose-pre:text-sm prose-pre:text-primary-foreground prose-pre:shadow-inner",
+  "prose-blockquote:border-accent prose-blockquote:bg-background prose-blockquote:px-4 prose-blockquote:py-1 prose-blockquote:font-normal prose-blockquote:italic",
+  "prose-table:my-6 prose-table:w-full prose-table:overflow-hidden prose-table:rounded-lg prose-table:border prose-table:border-border prose-table:bg-background",
+  "prose-thead:bg-secondary prose-th:border-b prose-th:border-border prose-th:px-4 prose-th:py-3 prose-td:border-b prose-td:border-border prose-td:px-4 prose-td:py-3",
+  "prose-hr:border-border",
+  "[&_code::after]:content-none [&_code::before]:content-none [&_pre_code]:rounded-none [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_pre_code]:font-normal [&_pre_code]:text-inherit",
+].join(" ");
+
 function looksLikeMermaid(codeText: string): boolean {
   const firstLine = codeText.split(/\r?\n/).find((line) => line.trim().length > 0);
   if (!firstLine) {
@@ -58,7 +76,7 @@ export function MarkdownView({ content, currentRelativePath, knownDocuments, onN
 
   return (
     <ScrollArea className="h-[calc(100vh-13rem)]">
-      <div className="markdown-body">
+      <div className={markdownClassName}>
         <ReactMarkdown
           remarkPlugins={[remarkGfm]}
           rehypePlugins={[[rehypeHighlight, { ignoreMissing: true }]]}
@@ -78,13 +96,10 @@ export function MarkdownView({ content, currentRelativePath, knownDocuments, onN
                 <button
                   type="button"
                   className="cursor-pointer bg-transparent p-0 text-left text-inherit"
-                  onClick={() => {
-                    onNavigate(resolved.path);
+                  onClick={async () => {
+                    await onNavigate(resolved.path);
                     if (resolved.hash) {
-                      setTimeout(() => {
-                        const target = document.getElementById(resolved.hash!);
-                        target?.scrollIntoView({ behavior: "smooth", block: "start" });
-                      }, 50);
+                      await focusHeadingByIdWhenReady(resolved.hash);
                     }
                   }}
                 >
@@ -99,11 +114,7 @@ export function MarkdownView({ content, currentRelativePath, knownDocuments, onN
                   href={`#${resolved.hash}`}
                   onClick={(event) => {
                     event.preventDefault();
-                    const target = document.getElementById(resolved.hash);
-                    if (target) {
-                      history.replaceState(null, "", `#${resolved.hash}`);
-                      target.scrollIntoView({ behavior: "smooth", block: "start" });
-                    }
+                    focusHeadingById(resolved.hash);
                   }}
                 >
                   {children}
@@ -136,15 +147,27 @@ export function MarkdownView({ content, currentRelativePath, knownDocuments, onN
           code: ({ className, children }) => <code className={className}>{children}</code>,
           h1: ({ children }) => {
             const id = createHeadingId(extractCodeText(children));
-            return <h1 id={id}>{children}</h1>;
+            return (
+              <h1 id={id} tabIndex={-1}>
+                {children}
+              </h1>
+            );
           },
           h2: ({ children }) => {
             const id = createHeadingId(extractCodeText(children));
-            return <h2 id={id}>{children}</h2>;
+            return (
+              <h2 id={id} tabIndex={-1}>
+                {children}
+              </h2>
+            );
           },
           h3: ({ children }) => {
             const id = createHeadingId(extractCodeText(children));
-            return <h3 id={id}>{children}</h3>;
+            return (
+              <h3 id={id} tabIndex={-1}>
+                {children}
+              </h3>
+            );
           },
         }}
         >
