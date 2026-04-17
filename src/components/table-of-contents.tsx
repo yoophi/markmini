@@ -4,6 +4,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { HeadingItem } from "@/types/content";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { focusHeadingById } from "@/lib/heading-navigation";
+import { cn } from "@/lib/utils";
 
 interface TableOfContentsProps {
   headings: HeadingItem[];
@@ -41,14 +43,14 @@ export function TableOfContents({ headings }: TableOfContentsProps) {
     };
 
     updateActiveHeading();
-    window.addEventListener("scroll", scheduleUpdate, { passive: true });
+    window.addEventListener("scroll", scheduleUpdate, { capture: true, passive: true });
     window.addEventListener("hashchange", scheduleUpdate);
 
     return () => {
       if (frameId) {
         window.cancelAnimationFrame(frameId);
       }
-      window.removeEventListener("scroll", scheduleUpdate);
+      window.removeEventListener("scroll", scheduleUpdate, { capture: true });
       window.removeEventListener("hashchange", scheduleUpdate);
     };
   }, [headingIds, headings.length]);
@@ -80,7 +82,7 @@ export function TableOfContents({ headings }: TableOfContentsProps) {
             TOC
           </CardTitle>
         </CardHeader>
-        <CardContent className="pt-0 text-sm text-[var(--muted-foreground)]">이 문서에는 표시할 제목이 없습니다.</CardContent>
+        <CardContent className="pt-0 text-sm text-muted-foreground">이 문서에는 표시할 제목이 없습니다.</CardContent>
       </Card>
     );
   }
@@ -94,8 +96,8 @@ export function TableOfContents({ headings }: TableOfContentsProps) {
         </CardTitle>
       </CardHeader>
       <CardContent className="pt-0">
-        <ScrollArea className="toc-scroll pr-3">
-          <div ref={scrollViewportRef}>
+        <ScrollArea className="h-[min(60vh,calc(100vh-14rem))] pr-3" viewportRef={scrollViewportRef}>
+          <div>
             <nav aria-label="Table of contents">
               <ol className="space-y-1">
                 {headings.map((heading) => {
@@ -104,19 +106,19 @@ export function TableOfContents({ headings }: TableOfContentsProps) {
                     <li key={heading.id}>
                       <a
                         href={`#${heading.id}`}
-                        className={`
-                          block rounded-2xl px-3 py-2 text-sm transition-colors
-                          ${isActive ? "bg-[var(--panel-strong)] text-white" : "text-[var(--muted-foreground)] hover:bg-white/70 hover:text-[var(--foreground)]"}
-                        `}
+                        className={cn(
+                          "block rounded-md py-2 pr-3 text-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
+                          tocIndentClass(heading.depth),
+                          isActive
+                            ? "bg-primary text-primary-foreground"
+                            : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+                        )}
                         aria-current={isActive ? "location" : undefined}
                         ref={isActive ? activeLinkRef : undefined}
-                        style={{ paddingLeft: `${0.75 + (heading.depth - 1) * 0.9}rem` }}
                         onClick={(event) => {
                           event.preventDefault();
-                          const target = document.getElementById(heading.id);
-                          if (target) {
-                            history.replaceState(null, "", `#${heading.id}`);
-                            target.scrollIntoView({ behavior: "smooth", block: "start" });
+                          if (focusHeadingById(heading.id)) {
+                            setActiveId(heading.id);
                           }
                         }}
                       >
@@ -132,6 +134,15 @@ export function TableOfContents({ headings }: TableOfContentsProps) {
       </CardContent>
     </Card>
   );
+}
+
+function tocIndentClass(depth: HeadingItem["depth"]) {
+  const classes = {
+    1: "pl-3",
+    2: "pl-6",
+    3: "pl-9",
+  };
+  return classes[depth];
 }
 
 function resolveActiveHeadingId(headingIds: string[]) {

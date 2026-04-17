@@ -4,6 +4,8 @@ interface MermaidBlockProps {
   chart: string;
 }
 
+const shellClassName = "not-prose my-6 overflow-hidden rounded-lg border border-border bg-background p-4 shadow-sm";
+
 export function MermaidBlock({ chart }: MermaidBlockProps) {
   const reactId = useId();
   const elementId = `mermaid-${reactId.replace(/:/g, "-")}`;
@@ -45,9 +47,9 @@ export function MermaidBlock({ chart }: MermaidBlockProps) {
 
   if (error) {
     return (
-      <div className="not-prose mermaid-shell">
-        <p className="font-medium text-[var(--destructive)]">Mermaid 렌더링에 실패했습니다.</p>
-        <pre className="mt-3 whitespace-pre-wrap break-words rounded-2xl border border-border/70 bg-[var(--secondary)] p-4 text-xs text-[var(--foreground)]">
+      <div className={shellClassName}>
+        <p className="font-medium text-destructive">Mermaid 렌더링에 실패했습니다.</p>
+        <pre className="mt-3 whitespace-pre-wrap break-words rounded-lg border border-border bg-secondary p-4 text-xs text-foreground">
           {error}
           {"\n\n"}
           {chart}
@@ -57,8 +59,8 @@ export function MermaidBlock({ chart }: MermaidBlockProps) {
   }
 
   if (!svg) {
-    return <div className="not-prose mermaid-shell text-sm text-[var(--muted-foreground)]">Mermaid chart 렌더링 중...</div>;
+    return <div className={`${shellClassName} text-sm text-muted-foreground`}>Mermaid chart 렌더링 중...</div>;
   }
 
-  return <div className="not-prose mermaid-shell mermaid-block" dangerouslySetInnerHTML={{ __html: svg }} />;
+  return <div className={`${shellClassName} [&_svg]:h-auto [&_svg]:max-w-full`} dangerouslySetInnerHTML={{ __html: svg }} />;
 }

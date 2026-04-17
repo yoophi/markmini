@@ -23,7 +23,7 @@ export function FileTree({ files, selectedFile, onSelect }: FileTreeProps) {
         <ScrollArea className="h-full">
           <div className="px-3 py-4">
             {tree.length === 0 ? (
-              <p className="px-3 text-sm leading-6 text-[var(--muted-foreground)]">표시할 markdown 파일이 없습니다.</p>
+              <p className="px-3 text-sm leading-6 text-muted-foreground">표시할 markdown 파일이 없습니다.</p>
             ) : (
               <ul className="space-y-1">
                 {tree.map((node) => (
@@ -59,7 +59,7 @@ function TreeNode({
   if (node.kind === "directory") {
     return (
       <li>
-        <div className="mb-1 flex items-center gap-2 px-3 py-2 text-xs font-medium uppercase tracking-[0.16em] text-[var(--muted-foreground)]">
+        <div className="mb-1 flex items-center gap-2 px-3 py-2 text-xs font-medium uppercase tracking-widest text-muted-foreground">
           <FolderOpen className="h-4 w-4" />
           <span className="truncate">{node.name}</span>
         </div>
@@ -79,17 +79,22 @@ function TreeNode({
         type="button"
         onClick={() => onSelect(node.path)}
         className={cn(
-          "flex w-full items-center gap-2 rounded-2xl px-3 py-2.5 text-left transition-colors",
-          isSelected ? "bg-[var(--panel-strong)] text-white shadow-md" : "text-[var(--foreground)] hover:bg-white/70",
+          "flex w-full items-center gap-2 rounded-md py-2.5 pr-3 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
+          treeNodeIndentClass(depth),
+          isSelected ? "bg-primary text-primary-foreground shadow-sm" : "text-foreground hover:bg-accent hover:text-accent-foreground",
         )}
-        style={{ paddingLeft: `${0.75 + depth * 0.75}rem` }}
       >
-        <ChevronRight className={cn("h-4 w-4 shrink-0", isSelected ? "opacity-80" : "text-[var(--muted-foreground)]")} />
+        <ChevronRight className={cn("h-4 w-4 shrink-0", isSelected ? "opacity-80" : "text-muted-foreground")} />
         <FileText className="h-4 w-4 shrink-0" />
         <span className="truncate text-sm">{fileLabel(node.path)}</span>
       </button>
     </li>
   );
+}
+
+function treeNodeIndentClass(depth: number) {
+  const classes = ["pl-3", "pl-6", "pl-9", "pl-12", "pl-14"];
+  return classes[Math.min(depth, classes.length - 1)];
 }
 
 function buildTree(files: string[]) {

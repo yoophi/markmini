@@ -30,7 +30,7 @@ const SheetContent = React.forwardRef<
     <DialogPrimitive.Content
       ref={ref}
       className={cn(
-        "fixed z-50 flex flex-col gap-4 border border-white/70 bg-[var(--popover)] p-6 shadow-2xl transition ease-out data-[state=closed]:animate-out data-[state=open]:animate-in",
+        "fixed z-50 flex flex-col gap-4 border bg-popover p-6 text-popover-foreground shadow-lg transition ease-out data-[state=closed]:animate-out data-[state=open]:animate-in",
         side === "left" && "inset-y-0 left-0 h-full border-r data-[state=closed]:slide-out-to-left data-[state=open]:slide-in-from-left",
         side === "right" && "inset-y-0 right-0 h-full border-l data-[state=closed]:slide-out-to-right data-[state=open]:slide-in-from-right",
         className,
@@ -38,7 +38,7 @@ const SheetContent = React.forwardRef<
       {...props}
     >
       {children}
-      <SheetClose className="absolute right-4 top-4 rounded-full p-1 text-[var(--muted-foreground)] hover:bg-[var(--secondary)]">
+      <SheetClose className="absolute right-4 top-4 rounded-md p-1 text-muted-foreground hover:bg-secondary">
         <X className="h-4 w-4" />
         <span className="sr-only">닫기</span>
       </SheetClose>
@@ -55,7 +55,7 @@ const SheetTitle = React.forwardRef<
   React.ElementRef<typeof DialogPrimitive.Title>,
   React.ComponentPropsWithoutRef<typeof DialogPrimitive.Title>
 >(({ className, ...props }, ref) => (
-  <DialogPrimitive.Title ref={ref} className={cn("font-display text-xl tracking-[0.08em]", className)} {...props} />
+  <DialogPrimitive.Title ref={ref} className={cn("font-display text-xl", className)} {...props} />
 ));
 SheetTitle.displayName = DialogPrimitive.Title.displayName;
 
