@@ -15,28 +15,23 @@ interface FileTreeProps {
 export function FileTree({ files, selectedFile, onSelect }: FileTreeProps) {
   const tree = useMemo(() => buildTree(files), [files]);
   const directoryPaths = useMemo(() => collectDirectoryPaths(tree), [tree]);
-  const [expandedPaths, setExpandedPaths] = useState<Set<string>>(() => new Set(directoryPaths));
+  const hasInitializedExpansionRef = useRef(false);
+  const [expandedPaths, setExpandedPaths] = useState<Set<string>>(() => new Set());
   const [focusedPath, setFocusedPath] = useState<string | null>(selectedFile);
   const treeRef = useRef<HTMLUListElement | null>(null);
 
   useEffect(() => {
     setExpandedPaths((current) => {
       const knownDirectories = new Set(directoryPaths);
-      const next = current.size === 0 ? new Set(directoryPaths) : new Set([...current].filter((path) => knownDirectories.has(path)));
-
-      if (current.size > 0) {
-        for (const path of directoryPaths) {
-          const parentPath = parentDirectoryPath(path);
-          if (!parentPath || next.has(parentPath)) {
-            next.add(path);
-          }
-        }
-      }
+      const next = hasInitializedExpansionRef.current
+        ? new Set([...current].filter((path) => knownDirectories.has(path)))
+        : new Set(directoryPaths);
 
       for (const path of selectedFile ? ancestorDirectoryPaths(selectedFile) : []) {
         next.add(path);
       }
 
+      hasInitializedExpansionRef.current = true;
       return next;
     });
   }, [directoryPaths, selectedFile]);
