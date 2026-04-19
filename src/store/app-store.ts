@@ -130,6 +130,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
     }
   },
   openDocument: async (relativePath) => {
+    const requestPath = relativePath;
     const current = get();
     if (current.document.isDirty && !confirmDiscardUnsavedChanges()) {
       return;
@@ -141,12 +142,20 @@ export const useAppStore = create<AppStore>((set, get) => ({
     });
 
     try {
-      const document = await readMarkdownFile(relativePath);
+      const document = await readMarkdownFile(requestPath);
+      if (get().selectedFile !== requestPath) {
+        return;
+      }
+
       set({
         selectedFile: document.relativePath,
         document: createReadyDocument(document.content, document.headings),
       });
     } catch (error) {
+      if (get().selectedFile !== requestPath) {
+        return;
+      }
+
       set({
         document: createErrorDocument(error instanceof Error ? error.message : "문서를 열지 못했습니다."),
       });
@@ -220,6 +229,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
     if (!current) {
       return;
     }
+    const requestPath = current;
 
     const currentDocument = get().document;
     if (currentDocument.isDirty && !force) {
@@ -233,7 +243,11 @@ export const useAppStore = create<AppStore>((set, get) => ({
     }
 
     try {
-      const document = await readMarkdownFile(current);
+      const document = await readMarkdownFile(requestPath);
+      if (get().selectedFile !== requestPath) {
+        return;
+      }
+
       set((state) => ({
         selectedFile: document.relativePath,
         document: {
@@ -242,6 +256,10 @@ export const useAppStore = create<AppStore>((set, get) => ({
         },
       }));
     } catch (error) {
+      if (get().selectedFile !== requestPath) {
+        return;
+      }
+
       set({
         document: createErrorDocument(error instanceof Error ? error.message : "문서를 다시 불러오지 못했습니다."),
       });
