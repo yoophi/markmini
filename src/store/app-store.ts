@@ -25,6 +25,7 @@ interface AppStore {
   scanSkippedPathSet: ReadonlySet<string>;
   scanError: string | null;
   selectedFile: string | null;
+  documentLoadToken: number;
   isSidebarOpen: boolean;
   document: {
     state: DocumentState;
@@ -62,6 +63,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
   scanSkippedPathSet: new Set(),
   scanError: null,
   selectedFile: null,
+  documentLoadToken: 0,
   isSidebarOpen: false,
   document: createEmptyDocument(),
   setSidebarOpen: (open) => set({ isSidebarOpen: open }),
@@ -136,14 +138,16 @@ export const useAppStore = create<AppStore>((set, get) => ({
       return;
     }
 
+    const loadToken = current.documentLoadToken + 1;
     set({
       selectedFile: relativePath,
+      documentLoadToken: loadToken,
       document: createLoadingDocument(),
     });
 
     try {
       const document = await readMarkdownFile(requestPath);
-      if (get().selectedFile !== requestPath) {
+      if (!isCurrentDocumentLoad(get(), requestPath, loadToken)) {
         return;
       }
 
@@ -152,7 +156,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
         document: createReadyDocument(document.content, document.headings),
       });
     } catch (error) {
-      if (get().selectedFile !== requestPath) {
+      if (!isCurrentDocumentLoad(get(), requestPath, loadToken)) {
         return;
       }
 
@@ -230,8 +234,9 @@ export const useAppStore = create<AppStore>((set, get) => ({
       return;
     }
     const requestPath = current;
+    const currentState = get();
 
-    const currentDocument = get().document;
+    const currentDocument = currentState.document;
     if (currentDocument.isDirty && !force) {
       set({
         document: {
@@ -242,9 +247,12 @@ export const useAppStore = create<AppStore>((set, get) => ({
       return;
     }
 
+    const loadToken = currentState.documentLoadToken + 1;
+    set({ documentLoadToken: loadToken });
+
     try {
       const document = await readMarkdownFile(requestPath);
-      if (get().selectedFile !== requestPath) {
+      if (!isCurrentDocumentLoad(get(), requestPath, loadToken)) {
         return;
       }
 
@@ -256,7 +264,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
         },
       }));
     } catch (error) {
-      if (get().selectedFile !== requestPath) {
+      if (!isCurrentDocumentLoad(get(), requestPath, loadToken)) {
         return;
       }
 
@@ -370,6 +378,10 @@ function createErrorDocument(message: string): AppStore["document"] {
 
 function confirmDiscardUnsavedChanges() {
   return window.confirm("저장하지 않은 변경사항이 있습니다. 변경사항을 버리고 계속할까요?");
+}
+
+function isCurrentDocumentLoad(state: AppStore, requestPath: string, loadToken: number) {
+  return state.selectedFile === requestPath && state.documentLoadToken === loadToken;
 }
 
 function mergeSortedUnique(current: string[], currentSet: ReadonlySet<string>, incoming: string[]) {
