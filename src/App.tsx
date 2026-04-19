@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { FileText, FolderTree, Menu, RefreshCcw, TextSearch } from "lucide-react";
+import { Edit3, Eye, FileText, FolderTree, Menu, RefreshCcw, Save, TextSearch } from "lucide-react";
 
 import { FileTree } from "@/components/file-tree";
 import { MarkdownView } from "@/components/markdown-view";
@@ -14,6 +14,11 @@ function App() {
   const bootstrap = useAppStore((state) => state.bootstrap);
   const openDocument = useAppStore((state) => state.openDocument);
   const refresh = useAppStore((state) => state.refresh);
+  const setDocumentMode = useAppStore((state) => state.setDocumentMode);
+  const updateDraftContent = useAppStore((state) => state.updateDraftContent);
+  const saveCurrentDocument = useAppStore((state) => state.saveCurrentDocument);
+  const reloadCurrentDocument = useAppStore((state) => state.reloadCurrentDocument);
+  const keepDraftAfterExternalChange = useAppStore((state) => state.keepDraftAfterExternalChange);
   const bootstrapState = useAppStore((state) => state.bootstrapState);
   const error = useAppStore((state) => state.error);
   const rootDir = useAppStore((state) => state.rootDir);
@@ -43,6 +48,18 @@ function App() {
       void unlistenPromise.then((unlisten) => unlisten());
     };
   }, []);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") {
+        event.preventDefault();
+        void saveCurrentDocument();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [saveCurrentDocument]);
 
   const selectedSegments = selectedFile?.split("/") ?? [];
   const selectedLabel = selectedSegments[selectedSegments.length - 1] ?? "문서를 선택하세요";
@@ -121,12 +138,59 @@ function App() {
               <Card className="min-h-[70vh] overflow-hidden">
                 <CardContent className="flex h-full flex-col p-0">
                   <div className="border-b border-border/60 px-5 py-4">
-                    <div className="flex items-center gap-2 text-sm font-medium uppercase tracking-widest text-muted-foreground">
-                      <TextSearch className="h-4 w-4" />
-                      Reader
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 text-sm font-medium uppercase tracking-widest text-muted-foreground">
+                          <TextSearch className="h-4 w-4" />
+                          {document.mode === "edit" ? "Editor" : "Reader"}
+                          {document.isDirty ? <span className="tracking-normal text-destructive">저장 안 됨</span> : null}
+                        </div>
+                        <h1 className="mt-2 truncate font-display text-2xl font-semibold text-foreground">{selectedLabel}</h1>
+                      </div>
+                      {document.state === "ready" ? (
+                        <div className="flex shrink-0 items-center gap-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setDocumentMode(document.mode === "edit" ? "preview" : "edit")}
+                          >
+                            {document.mode === "edit" ? <Eye className="h-4 w-4" /> : <Edit3 className="h-4 w-4" />}
+                            {document.mode === "edit" ? "미리보기" : "편집"}
+                          </Button>
+                          <Button
+                            size="sm"
+                            disabled={!document.isDirty || document.isSaving}
+                            onClick={() => void saveCurrentDocument()}
+                          >
+                            <Save className="h-4 w-4" />
+                            {document.isSaving ? "저장 중" : "저장"}
+                          </Button>
+                        </div>
+                      ) : null}
                     </div>
-                    <h1 className="mt-2 truncate font-display text-2xl font-semibold text-foreground">{selectedLabel}</h1>
                   </div>
+
+                  {document.externalChangeDetected ? (
+                    <div className="border-b border-border/60 bg-secondary px-5 py-3 text-sm text-secondary-foreground">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <span>파일이 디스크에서 변경되었습니다.</span>
+                        <div className="flex items-center gap-2">
+                          <Button variant="outline" size="sm" onClick={() => void reloadCurrentDocument(true)}>
+                            디스크에서 다시 불러오기
+                          </Button>
+                          <Button variant="ghost" size="sm" onClick={keepDraftAfterExternalChange}>
+                            현재 편집 유지
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {document.state === "ready" && document.error ? (
+                    <div className="border-b border-destructive/30 bg-destructive/10 px-5 py-3 text-sm text-destructive">
+                      {document.error}
+                    </div>
+                  ) : null}
 
                   {document.state === "loading" ? (
                     <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
@@ -136,6 +200,8 @@ function App() {
                     <div className="flex flex-1 items-center justify-center px-6 text-center text-sm text-destructive">
                       {document.error}
                     </div>
+                  ) : document.content && document.mode === "edit" ? (
+                    <MarkdownEditor content={document.draftContent} onChange={updateDraftContent} />
                   ) : document.content ? (
                     <MarkdownView
                       content={document.content}
@@ -163,6 +229,19 @@ function App() {
           </div>
         )}
       </main>
+    </div>
+  );
+}
+
+function MarkdownEditor({ content, onChange }: { content: string; onChange: (content: string) => void }) {
+  return (
+    <div className="h-[calc(100vh-13rem)] bg-background">
+      <textarea
+        value={content}
+        onChange={(event) => onChange(event.target.value)}
+        spellCheck={false}
+        className="h-full w-full resize-none border-0 bg-background px-5 py-6 font-mono text-sm leading-7 text-foreground outline-none placeholder:text-muted-foreground focus:ring-0 sm:px-8"
+      />
     </div>
   );
 }

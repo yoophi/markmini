@@ -1,11 +1,18 @@
 import { create } from "zustand";
 
 import { extractHeadings } from "@/lib/markdown";
-import { getInitialSession, readMarkdownFile, refreshSession, type ScanProgressPayload } from "@/lib/tauri";
+import {
+  getInitialSession,
+  readMarkdownFile,
+  refreshSession,
+  writeMarkdownFile,
+  type ScanProgressPayload,
+} from "@/lib/tauri";
 import type { HeadingItem, ScanStatus } from "@/types/content";
 
 type BootstrapState = "idle" | "loading" | "ready" | "error";
 type DocumentState = "idle" | "loading" | "ready" | "error";
+type DocumentMode = "preview" | "edit";
 
 interface AppStore {
   bootstrapState: BootstrapState;
@@ -22,14 +29,25 @@ interface AppStore {
   document: {
     state: DocumentState;
     content: string;
+    savedContent: string;
+    draftContent: string;
     headings: HeadingItem[];
     error: string | null;
+    mode: DocumentMode;
+    isDirty: boolean;
+    isSaving: boolean;
+    lastSavedAt: string | null;
+    externalChangeDetected: boolean;
   };
   setSidebarOpen: (open: boolean) => void;
   applyScanProgress: (payload: ScanProgressPayload) => Promise<void>;
   bootstrap: () => Promise<void>;
   openDocument: (relativePath: string) => Promise<void>;
-  reloadCurrentDocument: () => Promise<void>;
+  setDocumentMode: (mode: DocumentMode) => void;
+  updateDraftContent: (content: string) => void;
+  saveCurrentDocument: () => Promise<void>;
+  reloadCurrentDocument: (force?: boolean) => Promise<void>;
+  keepDraftAfterExternalChange: () => void;
   refresh: () => Promise<void>;
 }
 
@@ -45,12 +63,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
   scanError: null,
   selectedFile: null,
   isSidebarOpen: false,
-  document: {
-    state: "idle",
-    content: "",
-    headings: [],
-    error: null,
-  },
+  document: createEmptyDocument(),
   setSidebarOpen: (open) => set({ isSidebarOpen: open }),
   applyScanProgress: async (payload) => {
     const state = get();
@@ -92,12 +105,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
       scanSkippedPaths: [],
       scanSkippedPathSet: new Set(),
       scanError: null,
-      document: {
-        state: "idle",
-        content: "",
-        headings: [],
-        error: null,
-      },
+      document: createEmptyDocument(),
     });
 
     try {
@@ -122,69 +130,134 @@ export const useAppStore = create<AppStore>((set, get) => ({
     }
   },
   openDocument: async (relativePath) => {
+    const current = get();
+    if (current.document.isDirty && !confirmDiscardUnsavedChanges()) {
+      return;
+    }
+
     set({
       selectedFile: relativePath,
-      document: {
-        state: "loading",
-        content: "",
-        headings: [],
-        error: null,
-      },
+      document: createLoadingDocument(),
     });
 
     try {
       const document = await readMarkdownFile(relativePath);
       set({
         selectedFile: document.relativePath,
-        document: {
-          state: "ready",
-          content: document.content,
-          headings: document.headings.length > 0 ? document.headings : extractHeadings(document.content),
-          error: null,
-        },
+        document: createReadyDocument(document.content, document.headings),
       });
     } catch (error) {
       set({
-        document: {
-          state: "error",
-          content: "",
-          headings: [],
-          error: error instanceof Error ? error.message : "문서를 열지 못했습니다.",
-        },
+        document: createErrorDocument(error instanceof Error ? error.message : "문서를 열지 못했습니다."),
       });
     }
   },
-  reloadCurrentDocument: async () => {
+  setDocumentMode: (mode) => {
+    set((state) => ({
+      document: {
+        ...state.document,
+        mode,
+      },
+    }));
+  },
+  updateDraftContent: (content) => {
+    set((state) => ({
+      document: {
+        ...state.document,
+        content,
+        draftContent: content,
+        headings: extractHeadings(content),
+        isDirty: content !== state.document.savedContent,
+      },
+    }));
+  },
+  saveCurrentDocument: async () => {
     const current = get().selectedFile;
     if (!current) {
       return;
     }
 
+    const draftContent = get().document.draftContent;
+    set((state) => ({
+      document: {
+        ...state.document,
+        isSaving: true,
+        error: null,
+      },
+    }));
+
     try {
-      const document = await readMarkdownFile(current);
+      const document = await writeMarkdownFile(current, draftContent);
       set({
         selectedFile: document.relativePath,
         document: {
-          state: "ready",
-          content: document.content,
-          headings:
-            document.headings.length > 0 ? document.headings : extractHeadings(document.content),
-          error: null,
+          ...createReadyDocument(document.content, document.headings),
+          mode: get().document.mode,
+          lastSavedAt: new Date().toISOString(),
         },
       });
     } catch (error) {
+      set((state) => ({
+        document: {
+          ...state.document,
+          state: state.document.state === "loading" ? "error" : state.document.state,
+          isSaving: false,
+          error: error instanceof Error ? error.message : "문서를 저장하지 못했습니다.",
+        },
+      }));
+    }
+  },
+  reloadCurrentDocument: async (force = false) => {
+    const current = get().selectedFile;
+    if (!current) {
+      return;
+    }
+
+    const currentDocument = get().document;
+    if (currentDocument.isDirty && !force) {
       set({
         document: {
-          state: "error",
-          content: "",
-          headings: [],
-          error: error instanceof Error ? error.message : "문서를 다시 불러오지 못했습니다.",
+          ...currentDocument,
+          externalChangeDetected: true,
         },
+      });
+      return;
+    }
+
+    try {
+      const document = await readMarkdownFile(current);
+      set((state) => ({
+        selectedFile: document.relativePath,
+        document: {
+          ...createReadyDocument(document.content, document.headings),
+          mode: state.document.mode,
+        },
+      }));
+    } catch (error) {
+      set({
+        document: createErrorDocument(error instanceof Error ? error.message : "문서를 다시 불러오지 못했습니다."),
       });
     }
   },
+  keepDraftAfterExternalChange: () => {
+    set((state) => ({
+      document: {
+        ...state.document,
+        externalChangeDetected: false,
+      },
+    }));
+  },
   refresh: async () => {
     const previousSelection = get().selectedFile;
+    const hadDirtyDocument = get().document.isDirty;
+
+    if (hadDirtyDocument && !confirmDiscardUnsavedChanges()) {
+      return;
+    }
+
+    if (hadDirtyDocument) {
+      set({ document: createEmptyDocument() });
+    }
 
     try {
       const session = await refreshSession();
@@ -211,12 +284,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
       } else {
         set({
           selectedFile: null,
-          document: {
-            state: "idle",
-            content: "",
-            headings: [],
-            error: null,
-          },
+          document: createEmptyDocument(),
         });
       }
     } catch (error) {
@@ -226,6 +294,57 @@ export const useAppStore = create<AppStore>((set, get) => ({
     }
   },
 }));
+
+function createEmptyDocument(): AppStore["document"] {
+  return {
+    state: "idle",
+    content: "",
+    savedContent: "",
+    draftContent: "",
+    headings: [],
+    error: null,
+    mode: "preview",
+    isDirty: false,
+    isSaving: false,
+    lastSavedAt: null,
+    externalChangeDetected: false,
+  };
+}
+
+function createLoadingDocument(): AppStore["document"] {
+  return {
+    ...createEmptyDocument(),
+    state: "loading",
+  };
+}
+
+function createReadyDocument(content: string, headings: HeadingItem[]): AppStore["document"] {
+  return {
+    state: "ready",
+    content,
+    savedContent: content,
+    draftContent: content,
+    headings: headings.length > 0 ? headings : extractHeadings(content),
+    error: null,
+    mode: "preview",
+    isDirty: false,
+    isSaving: false,
+    lastSavedAt: null,
+    externalChangeDetected: false,
+  };
+}
+
+function createErrorDocument(message: string): AppStore["document"] {
+  return {
+    ...createEmptyDocument(),
+    state: "error",
+    error: message,
+  };
+}
+
+function confirmDiscardUnsavedChanges() {
+  return window.confirm("저장하지 않은 변경사항이 있습니다. 변경사항을 버리고 계속할까요?");
+}
 
 function mergeSortedUnique(current: string[], currentSet: ReadonlySet<string>, incoming: string[]) {
   let hasNewValue = false;
