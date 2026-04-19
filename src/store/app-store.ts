@@ -172,12 +172,20 @@ export const useAppStore = create<AppStore>((set, get) => ({
     }));
   },
   saveCurrentDocument: async () => {
-    const current = get().selectedFile;
-    if (!current) {
+    const state = get();
+    const current = state.selectedFile;
+    const currentDocument = state.document;
+    if (
+      !current ||
+      currentDocument.state !== "ready" ||
+      !currentDocument.isDirty ||
+      currentDocument.isSaving ||
+      currentDocument.externalChangeDetected
+    ) {
       return;
     }
 
-    const draftContent = get().document.draftContent;
+    const draftContent = currentDocument.draftContent;
     set((state) => ({
       document: {
         ...state.document,

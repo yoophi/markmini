@@ -30,6 +30,11 @@ function App() {
   const document = useAppStore((state) => state.document);
   const isSidebarOpen = useAppStore((state) => state.isSidebarOpen);
   const setSidebarOpen = useAppStore((state) => state.setSidebarOpen);
+  const canSaveDocument =
+    document.state === "ready" &&
+    document.isDirty &&
+    !document.isSaving &&
+    !document.externalChangeDetected;
 
   useEffect(() => {
     void bootstrap();
@@ -53,13 +58,15 @@ function App() {
     const handleKeyDown = (event: KeyboardEvent) => {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") {
         event.preventDefault();
-        void saveCurrentDocument();
+        if (canSaveDocument) {
+          void saveCurrentDocument();
+        }
       }
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [saveCurrentDocument]);
+  }, [canSaveDocument, saveCurrentDocument]);
 
   const selectedSegments = selectedFile?.split("/") ?? [];
   const selectedLabel = selectedSegments[selectedSegments.length - 1] ?? "문서를 선택하세요";
@@ -159,7 +166,7 @@ function App() {
                           </Button>
                           <Button
                             size="sm"
-                            disabled={!document.isDirty || document.isSaving}
+                            disabled={!canSaveDocument}
                             onClick={() => void saveCurrentDocument()}
                           >
                             <Save className="h-4 w-4" />
@@ -200,9 +207,9 @@ function App() {
                     <div className="flex flex-1 items-center justify-center px-6 text-center text-sm text-destructive">
                       {document.error}
                     </div>
-                  ) : document.content && document.mode === "edit" ? (
+                  ) : document.state === "ready" && document.mode === "edit" ? (
                     <MarkdownEditor content={document.draftContent} onChange={updateDraftContent} />
-                  ) : document.content ? (
+                  ) : document.state === "ready" ? (
                     <MarkdownView
                       content={document.content}
                       currentRelativePath={selectedFile}
