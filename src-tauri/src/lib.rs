@@ -4,8 +4,7 @@ use notify::{
 use serde::Serialize;
 use std::{
     collections::HashMap,
-    env,
-    fs,
+    env, fs,
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicU32, Ordering},
@@ -56,6 +55,11 @@ struct AppState {
     window_counter: AtomicU32,
 }
 
+enum ScanEntry {
+    File(String),
+    Skipped(String),
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct FsChangePayload {
@@ -63,7 +67,19 @@ struct FsChangePayload {
     tree_changed: bool,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ScanProgressPayload {
+    files: Vec<String>,
+    selected_file: Option<String>,
+    status: String,
+    skipped_paths: Vec<String>,
+    error: Option<String>,
+}
+
 const FS_CHANGE_EVENT: &str = "markmini://fs-change";
+const SCAN_PROGRESS_EVENT: &str = "markmini://scan-progress";
+const SCAN_BATCH_SIZE: usize = 64;
 
 // ---------------------------------------------------------------------------
 // Tauri commands — all receive WebviewWindow to identify the calling window
@@ -145,8 +161,13 @@ fn read_markdown_file(
     }
 
     let file_path = session.root_dir.join(&relative_path);
-    let content = fs::read_to_string(&file_path)
-        .map_err(|error| format!("failed to read markdown file {}: {}", file_path.display(), error))?;
+    let content = fs::read_to_string(&file_path).map_err(|error| {
+        format!(
+            "failed to read markdown file {}: {}",
+            file_path.display(),
+            error
+        )
+    })?;
 
     Ok(MarkdownDocument {
         relative_path,
@@ -161,8 +182,7 @@ fn read_markdown_file(
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let current_dir =
-        env::current_dir().expect("failed to resolve current directory");
+    let current_dir = env::current_dir().expect("failed to resolve current directory");
     let raw_arg = env::args().nth(1);
     let target = resolve_target_from_args(raw_arg.as_deref(), &current_dir)
         .expect("failed to resolve launch target");
@@ -234,36 +254,144 @@ fn populate_session_async(
     root_dir: PathBuf,
     selected_hint: Option<PathBuf>,
 ) {
-    let mut files = match collect_markdown_files(&root_dir) {
-        Ok(files) => files,
-        Err(error) => {
-            eprintln!("failed to scan {}: {}", root_dir.display(), error);
-            Vec::new()
+    let selected_hint_relative = selected_hint
+        .as_ref()
+        .and_then(|hint| path_to_relative(&root_dir, hint));
+
+    let _ = app_handle.emit_to(
+        label,
+        SCAN_PROGRESS_EVENT,
+        ScanProgressPayload {
+            files: Vec::new(),
+            selected_file: None,
+            status: "scanning".to_string(),
+            skipped_paths: Vec::new(),
+            error: None,
+        },
+    );
+
+    let mut files = Vec::<String>::new();
+    let mut pending_files = Vec::<String>::new();
+    let mut skipped_paths = Vec::<String>::new();
+    let mut pending_skipped_paths = Vec::<String>::new();
+    let mut selected_file = None::<String>;
+
+    let flush_progress = |app_handle: &tauri::AppHandle,
+                          files: &mut Vec<String>,
+                          pending_files: &mut Vec<String>,
+                          pending_skipped_paths: &mut Vec<String>,
+                          selected_file: &mut Option<String>| {
+        if pending_files.is_empty() && pending_skipped_paths.is_empty() {
+            return;
         }
+
+        pending_files.sort();
+        pending_files.dedup();
+
+        if selected_file.is_none() {
+            if let Some(hint) = &selected_hint_relative {
+                if pending_files.iter().any(|entry| entry == hint) {
+                    *selected_file = Some(hint.clone());
+                }
+            }
+        }
+
+        {
+            let state = app_handle.state::<AppState>();
+            let mut sessions = state.sessions.lock().expect("sessions lock poisoned");
+            if let Some(session) = sessions.get_mut(label) {
+                merge_sorted_unique(&mut session.files, pending_files);
+                session.selected_file = selected_file.clone();
+            }
+        }
+
+        merge_sorted_unique(files, pending_files);
+
+        let emitted_files = pending_files.clone();
+        let emitted_skipped_paths = pending_skipped_paths.clone();
+        pending_files.clear();
+        pending_skipped_paths.clear();
+
+        let _ = app_handle.emit_to(
+            label,
+            SCAN_PROGRESS_EVENT,
+            ScanProgressPayload {
+                files: emitted_files,
+                selected_file: selected_file.clone(),
+                status: "scanning".to_string(),
+                skipped_paths: emitted_skipped_paths,
+                error: None,
+            },
+        );
     };
+
+    let scan_result = visit_dir_streaming(&root_dir, &root_dir, &mut |entry| {
+        match entry {
+            ScanEntry::File(relative) => pending_files.push(relative),
+            ScanEntry::Skipped(skipped) => {
+                skipped_paths.push(skipped.clone());
+                pending_skipped_paths.push(skipped);
+            }
+        }
+
+        if pending_files.len() >= SCAN_BATCH_SIZE || pending_skipped_paths.len() >= SCAN_BATCH_SIZE
+        {
+            flush_progress(
+                app_handle,
+                &mut files,
+                &mut pending_files,
+                &mut pending_skipped_paths,
+                &mut selected_file,
+            );
+        }
+    });
+
+    flush_progress(
+        app_handle,
+        &mut files,
+        &mut pending_files,
+        &mut pending_skipped_paths,
+        &mut selected_file,
+    );
+
+    let error = scan_result.err().map(|error| {
+        eprintln!("failed to scan {}: {}", root_dir.display(), error);
+        error
+    });
+
     files.sort();
+    files.dedup();
 
-    let selected_file = match &selected_hint {
-        Some(hint) => path_to_relative(&root_dir, hint),
-        None => pick_default_document(&files),
+    if selected_file.is_none() {
+        selected_file = match &selected_hint_relative {
+            Some(hint) if files.iter().any(|entry| entry == hint) => Some(hint.clone()),
+            _ => pick_default_document(&files),
+        };
+    }
+
+    let final_status = if error.is_some() {
+        "error"
+    } else {
+        "completed"
     };
-
     {
         let state = app_handle.state::<AppState>();
         let mut sessions = state.sessions.lock().expect("sessions lock poisoned");
         if let Some(session) = sessions.get_mut(label) {
-            session.files = files;
-            session.selected_file = selected_file;
+            session.files = files.clone();
+            session.selected_file = selected_file.clone();
         }
     }
 
-    // Notify the frontend via the existing fs-change channel.
     let _ = app_handle.emit_to(
         label,
-        FS_CHANGE_EVENT,
-        FsChangePayload {
-            changed_paths: Vec::new(),
-            tree_changed: true,
+        SCAN_PROGRESS_EVENT,
+        ScanProgressPayload {
+            files,
+            selected_file,
+            status: final_status.to_string(),
+            skipped_paths,
+            error,
         },
     );
 
@@ -321,14 +449,10 @@ fn handle_new_instance(app: &tauri::AppHandle, argv: Vec<String>, cwd: String) {
         );
     }
 
-    let builder = WebviewWindowBuilder::new(
-        app,
-        &label,
-        WebviewUrl::App("index.html".into()),
-    )
-    .title(&window_title)
-    .inner_size(1440.0, 920.0)
-    .min_inner_size(1080.0, 720.0);
+    let builder = WebviewWindowBuilder::new(app, &label, WebviewUrl::App("index.html".into()))
+        .title(&window_title)
+        .inner_size(1440.0, 920.0)
+        .min_inner_size(1080.0, 720.0);
 
     match builder.build() {
         Ok(_) => {
@@ -492,8 +616,9 @@ fn resolve_target_from_args(raw_arg: Option<&str>, cwd: &Path) -> Result<PathBuf
         Some(value) if !value.is_empty() => resolve_arg_path(value, cwd)?,
         _ => {
             let dir = sensible_default_dir(cwd);
-            dir.canonicalize()
-                .map_err(|error| format!("failed to resolve directory {}: {}", dir.display(), error))?
+            dir.canonicalize().map_err(|error| {
+                format!("failed to resolve directory {}: {}", dir.display(), error)
+            })?
         }
     };
 
@@ -526,9 +651,13 @@ fn sensible_default_dir(cwd: &Path) -> PathBuf {
 fn resolve_arg_path(raw_arg: &str, current_dir: &Path) -> Result<PathBuf, String> {
     let path = PathBuf::from(raw_arg);
     if path.is_absolute() {
-        return path
-            .canonicalize()
-            .map_err(|error| format!("failed to resolve launch target {}: {}", path.display(), error));
+        return path.canonicalize().map_err(|error| {
+            format!(
+                "failed to resolve launch target {}: {}",
+                path.display(),
+                error
+            )
+        });
     }
 
     let mut base_dirs: Vec<PathBuf> = Vec::new();
@@ -566,7 +695,10 @@ fn resolve_arg_path(raw_arg: &str, current_dir: &Path) -> Result<PathBuf, String
         dedupe_paths(vec![
             PathBuf::from(env::var("PWD").unwrap_or_default()),
             current_dir.to_path_buf(),
-            current_dir.parent().map(Path::to_path_buf).unwrap_or_default(),
+            current_dir
+                .parent()
+                .map(Path::to_path_buf)
+                .unwrap_or_default(),
             manifest_parent.clone().unwrap_or_default(),
         ])
         .into_iter()
@@ -635,6 +767,60 @@ fn visit_dir(root_dir: &Path, directory: &Path, files: &mut Vec<String>) -> Resu
     }
 
     Ok(())
+}
+
+fn visit_dir_streaming(
+    root_dir: &Path,
+    directory: &Path,
+    on_entry: &mut impl FnMut(ScanEntry),
+) -> Result<(), String> {
+    let entries = match fs::read_dir(directory) {
+        Ok(entries) => entries,
+        Err(_) => {
+            if let Some(relative) = path_to_relative(root_dir, directory) {
+                on_entry(ScanEntry::Skipped(relative));
+            }
+            return Ok(());
+        }
+    };
+
+    for entry_result in entries {
+        let entry = match entry_result {
+            Ok(entry) => entry,
+            Err(_) => continue,
+        };
+        let path = entry.path();
+
+        if path.is_dir() {
+            if should_skip_dir(&path) {
+                if let Some(relative) = path_to_relative(root_dir, &path) {
+                    on_entry(ScanEntry::Skipped(relative));
+                }
+                continue;
+            }
+
+            visit_dir_streaming(root_dir, &path, on_entry)?;
+            continue;
+        }
+
+        if is_markdown_file(&path) {
+            if let Some(relative) = path_to_relative(root_dir, &path) {
+                on_entry(ScanEntry::File(relative));
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn merge_sorted_unique(target: &mut Vec<String>, incoming: &[String]) {
+    for path in incoming {
+        if !target.iter().any(|existing| existing == path) {
+            target.push(path.clone());
+        }
+    }
+    target.sort();
+    target.dedup();
 }
 
 fn should_skip_dir(path: &Path) -> bool {

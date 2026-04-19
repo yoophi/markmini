@@ -1,6 +1,6 @@
 import type { UnlistenFn } from "@tauri-apps/api/event";
 
-import { listenToFsChanges } from "@/lib/tauri";
+import { listenToFsChanges, listenToScanProgress } from "@/lib/tauri";
 import { useAppStore } from "@/store/app-store";
 
 const DEBOUNCE_MS = 200;
@@ -41,5 +41,11 @@ export function subscribeToFsChanges(): Promise<UnlistenFn> {
       window.clearTimeout(timeoutId);
     }
     timeoutId = window.setTimeout(flush, DEBOUNCE_MS);
+  });
+}
+
+export function subscribeToScanProgress(): Promise<UnlistenFn> {
+  return listenToScanProgress((payload) => {
+    void useAppStore.getState().applyScanProgress(payload);
   });
 }

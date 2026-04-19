@@ -10,6 +10,8 @@ export interface InitialSession {
   selectedFile: string | null;
 }
 
+export type ScanStatus = "idle" | "scanning" | "completed" | "error";
+
 export interface MarkdownDocument {
   relativePath: string;
   content: string;

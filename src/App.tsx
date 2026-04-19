@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { useAppStore } from "@/store/app-store";
-import { subscribeToFsChanges } from "@/store/fs-watcher";
+import { subscribeToFsChanges, subscribeToScanProgress } from "@/store/fs-watcher";
 
 function App() {
   const bootstrap = useAppStore((state) => state.bootstrap);
@@ -18,6 +18,9 @@ function App() {
   const error = useAppStore((state) => state.error);
   const rootDir = useAppStore((state) => state.rootDir);
   const files = useAppStore((state) => state.files);
+  const scanState = useAppStore((state) => state.scanState);
+  const scanSkippedPaths = useAppStore((state) => state.scanSkippedPaths);
+  const scanError = useAppStore((state) => state.scanError);
   const selectedFile = useAppStore((state) => state.selectedFile);
   const document = useAppStore((state) => state.document);
   const isSidebarOpen = useAppStore((state) => state.isSidebarOpen);
@@ -29,6 +32,13 @@ function App() {
 
   useEffect(() => {
     const unlistenPromise = subscribeToFsChanges();
+    return () => {
+      void unlistenPromise.then((unlisten) => unlisten());
+    };
+  }, []);
+
+  useEffect(() => {
+    const unlistenPromise = subscribeToScanProgress();
     return () => {
       void unlistenPromise.then((unlisten) => unlisten());
     };
@@ -69,6 +79,8 @@ function App() {
                   <div className="h-[calc(100vh-72px)] overflow-hidden">
                     <FileTree
                       files={files}
+                      scanState={scanState}
+                      skippedCount={scanSkippedPaths.length}
                       selectedFile={selectedFile}
                       onSelect={(file) => {
                         void openDocument(file);
@@ -95,7 +107,13 @@ function App() {
           <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[300px_minmax(0,1fr)]">
             <aside className="hidden min-h-0 lg:block">
               <div className="sticky top-4 h-[calc(100vh-8rem)]">
-                <FileTree files={files} selectedFile={selectedFile} onSelect={(file) => void openDocument(file)} />
+                <FileTree
+                  files={files}
+                  scanState={scanState}
+                  skippedCount={scanSkippedPaths.length}
+                  selectedFile={selectedFile}
+                  onSelect={(file) => void openDocument(file)}
+                />
               </div>
             </aside>
 
@@ -133,6 +151,11 @@ function App() {
 
               <aside className="min-h-0">
                 <div className="sticky top-4">
+                  {scanError ? (
+                    <div className="mb-4 rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+                      {scanError}
+                    </div>
+                  ) : null}
                   <TableOfContents headings={document.headings} />
                 </div>
               </aside>

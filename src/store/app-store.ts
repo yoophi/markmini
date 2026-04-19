@@ -1,8 +1,8 @@
 import { create } from "zustand";
 
 import { extractHeadings } from "@/lib/markdown";
-import { getInitialSession, readMarkdownFile, refreshSession } from "@/lib/tauri";
-import type { HeadingItem } from "@/types/content";
+import { getInitialSession, readMarkdownFile, refreshSession, type ScanProgressPayload } from "@/lib/tauri";
+import type { HeadingItem, ScanStatus } from "@/types/content";
 
 type BootstrapState = "idle" | "loading" | "ready" | "error";
 type DocumentState = "idle" | "loading" | "ready" | "error";
@@ -12,6 +12,9 @@ interface AppStore {
   error: string | null;
   rootDir: string | null;
   files: string[];
+  scanState: ScanStatus;
+  scanSkippedPaths: string[];
+  scanError: string | null;
   selectedFile: string | null;
   isSidebarOpen: boolean;
   document: {
@@ -21,6 +24,7 @@ interface AppStore {
     error: string | null;
   };
   setSidebarOpen: (open: boolean) => void;
+  applyScanProgress: (payload: ScanProgressPayload) => Promise<void>;
   bootstrap: () => Promise<void>;
   openDocument: (relativePath: string) => Promise<void>;
   reloadCurrentDocument: () => Promise<void>;
@@ -32,6 +36,9 @@ export const useAppStore = create<AppStore>((set, get) => ({
   error: null,
   rootDir: null,
   files: [],
+  scanState: "idle",
+  scanSkippedPaths: [],
+  scanError: null,
   selectedFile: null,
   isSidebarOpen: false,
   document: {
@@ -41,10 +48,35 @@ export const useAppStore = create<AppStore>((set, get) => ({
     error: null,
   },
   setSidebarOpen: (open) => set({ isSidebarOpen: open }),
+  applyScanProgress: async (payload) => {
+    const state = get();
+    const files = mergeSortedUnique(state.files, payload.files);
+    const scanSkippedPaths = mergeSortedUnique(state.scanSkippedPaths, payload.skippedPaths);
+    const shouldOpenSelectedFile =
+      payload.selectedFile &&
+      payload.selectedFile !== state.selectedFile &&
+      (!state.selectedFile || state.document.state === "idle");
+
+    set({
+      bootstrapState: state.bootstrapState === "loading" ? "ready" : state.bootstrapState,
+      files,
+      scanState: payload.status,
+      scanSkippedPaths,
+      scanError: payload.error,
+      selectedFile: shouldOpenSelectedFile ? payload.selectedFile : state.selectedFile,
+    });
+
+    if (shouldOpenSelectedFile && payload.selectedFile) {
+      await get().openDocument(payload.selectedFile);
+    }
+  },
   bootstrap: async () => {
     set({
       bootstrapState: "loading",
       error: null,
+      scanState: "scanning",
+      scanSkippedPaths: [],
+      scanError: null,
       document: {
         state: "idle",
         content: "",
@@ -58,7 +90,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
       set({
         bootstrapState: "ready",
         rootDir: session.rootDir,
-        files: session.files,
+        files: mergeSortedUnique([], session.files),
         selectedFile: session.selectedFile,
       });
 
@@ -143,7 +175,10 @@ export const useAppStore = create<AppStore>((set, get) => ({
         bootstrapState: "ready",
         error: null,
         rootDir: session.rootDir,
-        files: session.files,
+        files: mergeSortedUnique([], session.files),
+        scanState: "completed",
+        scanSkippedPaths: [],
+        scanError: null,
       });
 
       const nextSelection =
@@ -171,3 +206,11 @@ export const useAppStore = create<AppStore>((set, get) => ({
     }
   },
 }));
+
+function mergeSortedUnique(current: string[], incoming: string[]) {
+  const next = new Set(current);
+  for (const value of incoming) {
+    next.add(value);
+  }
+  return [...next].sort((a, b) => a.localeCompare(b));
+}

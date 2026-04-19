@@ -5,14 +5,17 @@ import { fileLabel } from "@/lib/path";
 import { cn } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import type { ScanStatus } from "@/types/content";
 
 interface FileTreeProps {
   files: string[];
+  scanState: ScanStatus;
+  skippedCount: number;
   selectedFile: string | null;
   onSelect: (relativePath: string) => void;
 }
 
-export function FileTree({ files, selectedFile, onSelect }: FileTreeProps) {
+export function FileTree({ files, scanState, skippedCount, selectedFile, onSelect }: FileTreeProps) {
   const tree = useMemo(() => buildTree(files), [files]);
   const directoryPaths = useMemo(() => collectDirectoryPaths(tree), [tree]);
   const hasInitializedExpansionRef = useRef(false);
@@ -154,6 +157,12 @@ export function FileTree({ files, selectedFile, onSelect }: FileTreeProps) {
             {files.length}
           </span>
         </div>
+        {scanState === "scanning" || skippedCount > 0 ? (
+          <div className="mt-2 flex items-center justify-between gap-3 text-xs text-muted-foreground">
+            <span>{scanState === "scanning" ? "문서를 찾는 중입니다." : "문서 탐색 완료"}</span>
+            {skippedCount > 0 ? <span>{skippedCount}개 경로 건너뜀</span> : null}
+          </div>
+        ) : null}
       </CardHeader>
       <CardContent className="h-[calc(100%-78px)] p-0">
         <ScrollArea className="h-full">
