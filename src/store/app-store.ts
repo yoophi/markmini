@@ -282,15 +282,12 @@ export const useAppStore = create<AppStore>((set, get) => ({
     }));
   },
   refresh: async () => {
-    const previousSelection = get().selectedFile;
-    const hadDirtyDocument = get().document.isDirty;
+    const previousState = get();
+    const previousSelection = previousState.selectedFile;
+    const hadDirtyDocument = previousState.document.isDirty;
 
     if (hadDirtyDocument && !confirmDiscardUnsavedChanges()) {
       return;
-    }
-
-    if (hadDirtyDocument) {
-      set({ document: createEmptyDocument() });
     }
 
     try {
@@ -308,13 +305,23 @@ export const useAppStore = create<AppStore>((set, get) => ({
         scanError: null,
       });
 
-      const nextSelection =
-        previousSelection && session.files.includes(previousSelection)
-          ? previousSelection
-          : session.selectedFile;
+      if (previousSelection && session.files.includes(previousSelection)) {
+        if (hadDirtyDocument) {
+          await get().reloadCurrentDocument(true);
+        }
+        return;
+      }
 
-      if (nextSelection) {
-        await get().openDocument(nextSelection);
+      if (previousSelection) {
+        set({
+          selectedFile: previousSelection,
+          document: createErrorDocument("선택한 문서가 디스크에서 삭제되었거나 이동되었습니다."),
+        });
+        return;
+      }
+
+      if (session.selectedFile) {
+        await get().openDocument(session.selectedFile);
       } else {
         set({
           selectedFile: null,
