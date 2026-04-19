@@ -45,6 +45,7 @@ struct MarkdownDocument {
 #[derive(Debug, Clone)]
 struct SessionState {
     root_dir: PathBuf,
+    canonical_root_dir: PathBuf,
     files: Vec<String>,
     selected_file: Option<String>,
 }
@@ -128,7 +129,7 @@ fn refresh_session(
         .get_mut(window.label())
         .ok_or_else(|| format!("no session for window {}", window.label()))?;
 
-    let mut files = collect_markdown_files(&session.root_dir)?;
+    let mut files = collect_markdown_files(&session.root_dir, &session.canonical_root_dir)?;
     files.sort();
 
     let selected_file = match &session.selected_file {
@@ -169,10 +170,12 @@ fn read_markdown_file(
     }
 
     let file_path = session.root_dir.join(&relative_path);
-    let content = fs::read_to_string(&file_path).map_err(|error| {
+    let canonical_file =
+        canonical_file_inside_root(&session.canonical_root_dir, &file_path, &relative_path)?;
+    let content = fs::read_to_string(&canonical_file).map_err(|error| {
         format!(
             "failed to read markdown file {}: {}",
-            file_path.display(),
+            canonical_file.display(),
             error
         )
     })?;
@@ -208,29 +211,13 @@ fn write_markdown_file(
     }
 
     let file_path = session.root_dir.join(&relative_path);
-    let canonical_parent = file_path
-        .parent()
-        .ok_or_else(|| format!("failed to resolve parent for {}", file_path.display()))?
-        .canonicalize()
-        .map_err(|error| {
-            format!(
-                "failed to resolve parent for {}: {}",
-                file_path.display(),
-                error
-            )
-        })?;
+    let canonical_file =
+        canonical_file_inside_root(&session.canonical_root_dir, &file_path, &relative_path)?;
 
-    if !canonical_parent.starts_with(&session.root_dir) {
-        return Err(format!(
-            "document is outside the current root: {}",
-            relative_path
-        ));
-    }
-
-    fs::write(&file_path, &content).map_err(|error| {
+    fs::write(&canonical_file, &content).map_err(|error| {
         format!(
             "failed to write markdown file {}: {}",
-            file_path.display(),
+            canonical_file.display(),
             error
         )
     })?;
@@ -259,6 +246,7 @@ pub fn run() {
     // Start with an empty session — the window shows immediately.
     let initial_session = SessionState {
         root_dir: initial_root_dir.clone(),
+        canonical_root_dir: initial_root_dir.clone(),
         files: Vec::new(),
         selected_file: None,
     };
@@ -510,6 +498,7 @@ fn handle_new_instance(app: &tauri::AppHandle, argv: Vec<String>, cwd: String) {
             label.clone(),
             SessionState {
                 root_dir: root_dir.clone(),
+                canonical_root_dir: root_dir.clone(),
                 files: Vec::new(),
                 selected_file: None,
             },
@@ -798,13 +787,21 @@ fn dedupe_paths(paths: Vec<PathBuf>) -> Vec<PathBuf> {
 // File scanning
 // ---------------------------------------------------------------------------
 
-fn collect_markdown_files(root_dir: &Path) -> Result<Vec<String>, String> {
+fn collect_markdown_files(
+    root_dir: &Path,
+    canonical_root_dir: &Path,
+) -> Result<Vec<String>, String> {
     let mut files = Vec::new();
-    visit_dir(root_dir, root_dir, &mut files)?;
+    visit_dir(root_dir, canonical_root_dir, root_dir, &mut files)?;
     Ok(files)
 }
 
-fn visit_dir(root_dir: &Path, directory: &Path, files: &mut Vec<String>) -> Result<(), String> {
+fn visit_dir(
+    root_dir: &Path,
+    canonical_root_dir: &Path,
+    directory: &Path,
+    files: &mut Vec<String>,
+) -> Result<(), String> {
     let entries = match fs::read_dir(directory) {
         Ok(entries) => entries,
         Err(_) => return Ok(()), // permission denied 등 — 건너뛰고 계속
@@ -822,11 +819,15 @@ fn visit_dir(root_dir: &Path, directory: &Path, files: &mut Vec<String>) -> Resu
                 continue;
             }
 
-            visit_dir(root_dir, &path, files)?;
+            if !canonical_path_is_inside_root(canonical_root_dir, &path) {
+                continue;
+            }
+
+            visit_dir(root_dir, canonical_root_dir, &path, files)?;
             continue;
         }
 
-        if is_markdown_file(&path) {
+        if is_markdown_file(&path) && canonical_path_is_inside_root(canonical_root_dir, &path) {
             if let Some(relative) = path_to_relative(root_dir, &path) {
                 files.push(relative);
             }
@@ -866,11 +867,18 @@ fn visit_dir_streaming(
                 continue;
             }
 
+            if !canonical_path_is_inside_root(root_dir, &path) {
+                if let Some(relative) = path_to_relative(root_dir, &path) {
+                    on_entry(ScanEntry::Skipped(relative));
+                }
+                continue;
+            }
+
             visit_dir_streaming(root_dir, &path, on_entry)?;
             continue;
         }
 
-        if is_markdown_file(&path) {
+        if is_markdown_file(&path) && canonical_path_is_inside_root(root_dir, &path) {
             if let Some(relative) = path_to_relative(root_dir, &path) {
                 on_entry(ScanEntry::File(relative));
             }
@@ -903,6 +911,35 @@ fn is_markdown_file(path: &Path) -> bool {
         .and_then(|ext| ext.to_str())
         .map(|ext| matches!(ext.to_ascii_lowercase().as_str(), "md" | "markdown"))
         .unwrap_or(false)
+}
+
+fn canonical_path_is_inside_root(canonical_root_dir: &Path, path: &Path) -> bool {
+    path.canonicalize()
+        .map(|canonical| canonical.starts_with(canonical_root_dir))
+        .unwrap_or(false)
+}
+
+fn canonical_file_inside_root(
+    canonical_root_dir: &Path,
+    file_path: &Path,
+    relative_path: &str,
+) -> Result<PathBuf, String> {
+    let canonical_file = file_path.canonicalize().map_err(|error| {
+        format!(
+            "failed to resolve markdown file {}: {}",
+            file_path.display(),
+            error
+        )
+    })?;
+
+    if !canonical_file.starts_with(canonical_root_dir) {
+        return Err(format!(
+            "document is outside the current root: {}",
+            relative_path
+        ));
+    }
+
+    Ok(canonical_file)
 }
 
 fn path_to_relative(root_dir: &Path, path: &Path) -> Option<String> {
