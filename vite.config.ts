@@ -37,6 +37,8 @@ export default defineConfig(async () => ({
     },
   },
   build: {
+    // Mermaid's renderer core remains a lazy-loaded chunk, so this limit
+    // reflects render-time code rather than startup JavaScript.
     chunkSizeWarningLimit: 700,
     rollupOptions: {
       output: {
