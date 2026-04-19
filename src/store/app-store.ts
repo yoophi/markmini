@@ -12,8 +12,10 @@ interface AppStore {
   error: string | null;
   rootDir: string | null;
   files: string[];
+  fileSet: ReadonlySet<string>;
   scanState: ScanStatus;
   scanSkippedPaths: string[];
+  scanSkippedPathSet: ReadonlySet<string>;
   scanError: string | null;
   selectedFile: string | null;
   isSidebarOpen: boolean;
@@ -36,8 +38,10 @@ export const useAppStore = create<AppStore>((set, get) => ({
   error: null,
   rootDir: null,
   files: [],
+  fileSet: new Set(),
   scanState: "idle",
   scanSkippedPaths: [],
+  scanSkippedPathSet: new Set(),
   scanError: null,
   selectedFile: null,
   isSidebarOpen: false,
@@ -50,8 +54,16 @@ export const useAppStore = create<AppStore>((set, get) => ({
   setSidebarOpen: (open) => set({ isSidebarOpen: open }),
   applyScanProgress: async (payload) => {
     const state = get();
-    const files = mergeSortedUnique(state.files, payload.files);
-    const scanSkippedPaths = mergeSortedUnique(state.scanSkippedPaths, payload.skippedPaths);
+    const { values: files, valueSet: fileSet } = mergeSortedUnique(
+      state.files,
+      state.fileSet,
+      payload.files,
+    );
+    const { values: scanSkippedPaths, valueSet: scanSkippedPathSet } = mergeSortedUnique(
+      state.scanSkippedPaths,
+      state.scanSkippedPathSet,
+      payload.skippedPaths,
+    );
     const shouldOpenSelectedFile =
       payload.selectedFile &&
       payload.selectedFile !== state.selectedFile &&
@@ -60,8 +72,10 @@ export const useAppStore = create<AppStore>((set, get) => ({
     set({
       bootstrapState: state.bootstrapState === "loading" ? "ready" : state.bootstrapState,
       files,
+      fileSet,
       scanState: payload.status,
       scanSkippedPaths,
+      scanSkippedPathSet,
       scanError: payload.error,
       selectedFile: shouldOpenSelectedFile ? payload.selectedFile : state.selectedFile,
     });
@@ -76,6 +90,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
       error: null,
       scanState: "scanning",
       scanSkippedPaths: [],
+      scanSkippedPathSet: new Set(),
       scanError: null,
       document: {
         state: "idle",
@@ -87,10 +102,12 @@ export const useAppStore = create<AppStore>((set, get) => ({
 
     try {
       const session = await getInitialSession();
+      const { values: files, valueSet: fileSet } = mergeSortedUnique([], new Set(), session.files);
       set({
         bootstrapState: "ready",
         rootDir: session.rootDir,
-        files: mergeSortedUnique([], session.files),
+        files,
+        fileSet,
         selectedFile: session.selectedFile,
       });
 
@@ -171,13 +188,16 @@ export const useAppStore = create<AppStore>((set, get) => ({
 
     try {
       const session = await refreshSession();
+      const { values: files, valueSet: fileSet } = mergeSortedUnique([], new Set(), session.files);
       set({
         bootstrapState: "ready",
         error: null,
         rootDir: session.rootDir,
-        files: mergeSortedUnique([], session.files),
+        files,
+        fileSet,
         scanState: "completed",
         scanSkippedPaths: [],
+        scanSkippedPathSet: new Set(),
         scanError: null,
       });
 
@@ -207,10 +227,23 @@ export const useAppStore = create<AppStore>((set, get) => ({
   },
 }));
 
-function mergeSortedUnique(current: string[], incoming: string[]) {
-  const next = new Set(current);
+function mergeSortedUnique(current: string[], currentSet: ReadonlySet<string>, incoming: string[]) {
+  let hasNewValue = false;
+  const next = new Set(currentSet);
+
   for (const value of incoming) {
+    if (!next.has(value)) {
+      hasNewValue = true;
+    }
     next.add(value);
   }
-  return [...next].sort((a, b) => a.localeCompare(b));
+
+  if (!hasNewValue && next.size === current.length) {
+    return { values: current, valueSet: currentSet };
+  }
+
+  return {
+    values: [...next].sort((a, b) => a.localeCompare(b)),
+    valueSet: next,
+  };
 }

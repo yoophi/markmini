@@ -69,10 +69,18 @@ struct FsChangePayload {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+enum ScanStatus {
+    Scanning,
+    Completed,
+    Error,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 struct ScanProgressPayload {
     files: Vec<String>,
     selected_file: Option<String>,
-    status: String,
+    status: ScanStatus,
     skipped_paths: Vec<String>,
     error: Option<String>,
 }
@@ -264,7 +272,7 @@ fn populate_session_async(
         ScanProgressPayload {
             files: Vec::new(),
             selected_file: None,
-            status: "scanning".to_string(),
+            status: ScanStatus::Scanning,
             skipped_paths: Vec::new(),
             error: None,
         },
@@ -318,7 +326,7 @@ fn populate_session_async(
             ScanProgressPayload {
                 files: emitted_files,
                 selected_file: selected_file.clone(),
-                status: "scanning".to_string(),
+                status: ScanStatus::Scanning,
                 skipped_paths: emitted_skipped_paths,
                 error: None,
             },
@@ -370,9 +378,9 @@ fn populate_session_async(
     }
 
     let final_status = if error.is_some() {
-        "error"
+        ScanStatus::Error
     } else {
-        "completed"
+        ScanStatus::Completed
     };
     {
         let state = app_handle.state::<AppState>();
@@ -389,7 +397,7 @@ fn populate_session_async(
         ScanProgressPayload {
             files,
             selected_file,
-            status: final_status.to_string(),
+            status: final_status,
             skipped_paths,
             error,
         },
