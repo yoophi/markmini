@@ -33,6 +33,9 @@ function App() {
   const bootstrapState = useAppStore((state) => state.bootstrapState);
   const error = useAppStore((state) => state.error);
   const rootDir = useAppStore((state) => state.rootDir);
+  const successMessage = useAppStore((state) => state.successMessage);
+  const successMessageId = useAppStore((state) => state.successMessageId);
+  const clearSuccessMessage = useAppStore((state) => state.clearSuccessMessage);
   const files = useAppStore((state) => state.files);
   const scanState = useAppStore((state) => state.scanState);
   const scanSkippedPaths = useAppStore((state) => state.scanSkippedPaths);
@@ -92,6 +95,18 @@ function App() {
       setRenamePath(selectedFile ?? "");
     }
   }, [isRenameDialogOpen, selectedFile]);
+
+  useEffect(() => {
+    if (!successMessage) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      clearSuccessMessage();
+    }, 2600);
+
+    return () => window.clearTimeout(timer);
+  }, [successMessage, successMessageId, clearSuccessMessage]);
 
   const selectedSegments = selectedFile?.split("/") ?? [];
   const selectedLabel = selectedSegments[selectedSegments.length - 1] ?? "문서를 선택하세요";
@@ -327,6 +342,12 @@ function App() {
                         ) : null}
                       </div>
                     </div>
+
+                    {successMessage ? (
+                      <div className="border-b border-emerald-500/20 bg-emerald-500/10 px-5 py-3 text-sm text-emerald-700">
+                        {successMessage}
+                      </div>
+                    ) : null}
 
                     {document.externalChangeDetected ? (
                       <div className="border-b border-border/60 bg-secondary px-5 py-3 text-sm text-secondary-foreground">

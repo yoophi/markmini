@@ -30,6 +30,8 @@ interface AppStore {
   selectedFile: string | null;
   documentLoadToken: number;
   isSidebarOpen: boolean;
+  successMessage: string | null;
+  successMessageId: number;
   document: {
     state: DocumentState;
     content: string;
@@ -44,6 +46,7 @@ interface AppStore {
     externalChangeDetected: boolean;
   };
   setSidebarOpen: (open: boolean) => void;
+  clearSuccessMessage: () => void;
   applyScanProgress: (payload: ScanProgressPayload) => Promise<void>;
   bootstrap: () => Promise<void>;
   openDocument: (relativePath: string) => Promise<void>;
@@ -71,8 +74,11 @@ export const useAppStore = create<AppStore>((set, get) => ({
   selectedFile: null,
   documentLoadToken: 0,
   isSidebarOpen: false,
+  successMessage: null,
+  successMessageId: 0,
   document: createEmptyDocument(),
   setSidebarOpen: (open) => set({ isSidebarOpen: open }),
+  clearSuccessMessage: () => set({ successMessage: null }),
   applyScanProgress: async (payload) => {
     const state = get();
     const { values: files, valueSet: fileSet } = mergeSortedUnique(state.files, state.fileSet, payload.files);
@@ -152,6 +158,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
 
       set({
         selectedFile: document.relativePath,
+        successMessage: null,
         document: createReadyDocument(document.content, document.headings),
       });
     } catch (error) {
@@ -181,15 +188,17 @@ export const useAppStore = create<AppStore>((set, get) => ({
     try {
       const document = await createMarkdownFile(normalizedPath, content);
       const { values: files, valueSet: fileSet } = mergeSortedUnique(state.files, state.fileSet, [document.relativePath]);
-      set({
+      set((state) => ({
         files,
         fileSet,
         selectedFile: document.relativePath,
+        successMessage: `새 문서를 만들었습니다: ${document.relativePath}`,
+        successMessageId: state.successMessageId + 1,
         document: {
           ...createReadyDocument(document.content, document.headings),
           mode: "edit",
         },
-      });
+      }));
     } catch (error) {
       set({
         selectedFile: state.selectedFile,
@@ -217,12 +226,14 @@ export const useAppStore = create<AppStore>((set, get) => ({
         .filter((entry) => entry !== result.oldRelativePath)
         .concat(result.document.relativePath)
         .sort((a, b) => a.localeCompare(b));
-      set({
+      set((state) => ({
         files,
         fileSet: new Set(files),
         selectedFile: result.document.relativePath,
+        successMessage: `문서 이름을 변경했습니다: ${result.document.relativePath}`,
+        successMessageId: state.successMessageId + 1,
         document: createReadyDocument(result.document.content, result.document.headings),
-      });
+      }));
     } catch (error) {
       set({
         selectedFile: current,
@@ -242,12 +253,14 @@ export const useAppStore = create<AppStore>((set, get) => ({
     try {
       const result = await deleteMarkdownFile(current);
       const files = state.files.filter((entry) => entry !== result.deletedRelativePath);
-      set({
+      set((state) => ({
         files,
         fileSet: new Set(files),
         selectedFile: result.nextSelectedFile,
+        successMessage: `문서를 삭제했습니다: ${result.deletedRelativePath}`,
+        successMessageId: state.successMessageId + 1,
         document: result.nextSelectedFile ? createLoadingDocument() : createEmptyDocument(),
-      });
+      }));
 
       if (result.nextSelectedFile) {
         await get().openDocument(result.nextSelectedFile);
@@ -269,6 +282,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
   },
   updateDraftContent: (content) => {
     set((state) => ({
+      successMessage: null,
       document: {
         ...state.document,
         content,
@@ -303,14 +317,16 @@ export const useAppStore = create<AppStore>((set, get) => ({
 
     try {
       const document = await writeMarkdownFile(current, draftContent);
-      set({
+      set((state) => ({
         selectedFile: document.relativePath,
+        successMessage: `저장했습니다: ${document.relativePath}`,
+        successMessageId: state.successMessageId + 1,
         document: {
           ...createReadyDocument(document.content, document.headings),
           mode: get().document.mode,
           lastSavedAt: new Date().toISOString(),
         },
-      });
+      }));
     } catch (error) {
       set((state) => ({
         document: {
@@ -351,6 +367,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
       }
 
       set((state) => ({
+        successMessage: null,
         selectedFile: document.relativePath,
         document: {
           ...createReadyDocument(document.content, document.headings),
@@ -393,6 +410,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
         scanSkippedPaths: [],
         scanSkippedPathSet: new Set(),
         scanError: null,
+        successMessage: null,
       });
 
       if (previousSelection && session.files.includes(previousSelection)) {
