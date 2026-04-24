@@ -44,6 +44,13 @@ struct MarkdownDocument {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+struct RenameMarkdownResult {
+    old_relative_path: String,
+    document: MarkdownDocument,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 struct DeleteMarkdownResult {
     deleted_relative_path: String,
     next_selected_file: Option<String>,
@@ -237,6 +244,119 @@ fn write_markdown_file(
 }
 
 #[tauri::command]
+fn create_markdown_file(
+    relative_path: String,
+    content: Option<String>,
+    window: tauri::WebviewWindow,
+    state: tauri::State<'_, AppState>,
+) -> Result<MarkdownDocument, String> {
+    let mut sessions = state
+        .sessions
+        .lock()
+        .map_err(|_| "failed to acquire sessions lock".to_string())?;
+
+    let session = sessions
+        .get_mut(window.label())
+        .ok_or_else(|| format!("no session for window {}", window.label()))?;
+
+    let file_path = create_session_markdown_path(session, &relative_path)?;
+    if let Some(parent) = file_path.parent() {
+        fs::create_dir_all(parent).map_err(|error| {
+            format!("failed to create parent directory {}: {}", parent.display(), error)
+        })?;
+    }
+
+    let content = content.unwrap_or_default();
+    fs::write(&file_path, &content)
+        .map_err(|error| format!("failed to create markdown file {}: {}", file_path.display(), error))?;
+
+    if !session.files.iter().any(|entry| entry == &relative_path) {
+        session.files.push(relative_path.clone());
+        session.files.sort();
+    }
+    session.selected_file = Some(relative_path.clone());
+
+    Ok(MarkdownDocument {
+        relative_path,
+        headings: extract_headings(&content),
+        content,
+    })
+}
+
+#[tauri::command]
+fn rename_markdown_file(
+    from_relative_path: String,
+    to_relative_path: String,
+    window: tauri::WebviewWindow,
+    state: tauri::State<'_, AppState>,
+) -> Result<RenameMarkdownResult, String> {
+    let mut sessions = state
+        .sessions
+        .lock()
+        .map_err(|_| "failed to acquire sessions lock".to_string())?;
+
+    let session = sessions
+        .get_mut(window.label())
+        .ok_or_else(|| format!("no session for window {}", window.label()))?;
+
+    if !session.files.iter().any(|entry| entry == &from_relative_path) {
+        return Err(format!(
+            "document is not available in the current root: {}",
+            from_relative_path
+        ));
+    }
+
+    if from_relative_path == to_relative_path {
+        return Err("new path must be different from the current path".to_string());
+    }
+
+    let from_file_path = session.root_dir.join(&from_relative_path);
+    let canonical_from = canonical_file_inside_root(
+        &session.canonical_root_dir,
+        &from_file_path,
+        &from_relative_path,
+    )?;
+    let target_file_path = create_session_markdown_path(session, &to_relative_path)?;
+
+    if let Some(parent) = target_file_path.parent() {
+        fs::create_dir_all(parent).map_err(|error| {
+            format!("failed to create parent directory {}: {}", parent.display(), error)
+        })?;
+    }
+
+    fs::rename(&canonical_from, &target_file_path).map_err(|error| {
+        format!(
+            "failed to rename markdown file {} -> {}: {}",
+            from_relative_path, to_relative_path, error
+        )
+    })?;
+
+    session.files.retain(|entry| entry != &from_relative_path);
+    session.files.push(to_relative_path.clone());
+    session.files.sort();
+    if session.selected_file.as_deref() == Some(&from_relative_path) {
+        session.selected_file = Some(to_relative_path.clone());
+    }
+
+    let content = fs::read_to_string(&target_file_path).map_err(|error| {
+        format!(
+            "failed to read renamed markdown file {}: {}",
+            target_file_path.display(),
+            error
+        )
+    })?;
+
+    Ok(RenameMarkdownResult {
+        old_relative_path: from_relative_path,
+        document: MarkdownDocument {
+            relative_path: to_relative_path,
+            headings: extract_headings(&content),
+            content,
+        },
+    })
+}
+
+#[tauri::command]
 fn delete_markdown_file(
     relative_path: String,
     window: tauri::WebviewWindow,
@@ -339,6 +459,8 @@ pub fn run() {
             refresh_session,
             read_markdown_file,
             write_markdown_file,
+            create_markdown_file,
+            rename_markdown_file,
             delete_markdown_file
         ])
         .run(tauri::generate_context!())
@@ -996,6 +1118,38 @@ fn canonical_file_inside_root(
     }
 
     Ok(canonical_file)
+}
+
+fn create_session_markdown_path(session: &SessionState, relative_path: &str) -> Result<PathBuf, String> {
+    let relative = Path::new(relative_path);
+    if relative_path.trim().is_empty()
+        || relative.is_absolute()
+        || relative
+            .components()
+            .any(|component| !matches!(component, std::path::Component::Normal(_)))
+    {
+        return Err(format!("invalid relative markdown path: {}", relative_path));
+    }
+
+    let file_path = session.root_dir.join(relative);
+    if !is_markdown_file(&file_path) {
+        return Err(format!("document is not a markdown file: {}", relative_path));
+    }
+
+    if session.files.iter().any(|entry| entry == relative_path) || file_path.exists() {
+        return Err(format!("document already exists: {}", relative_path));
+    }
+
+    let canonical_parent = file_path
+        .parent()
+        .unwrap_or(&session.root_dir)
+        .canonicalize()
+        .unwrap_or_else(|_| session.root_dir.clone());
+    if !canonical_parent.starts_with(&session.canonical_root_dir) {
+        return Err(format!("document is outside the current root: {}", relative_path));
+    }
+
+    Ok(file_path)
 }
 
 fn path_to_relative(root_dir: &Path, path: &Path) -> Option<String> {

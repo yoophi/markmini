@@ -2,10 +2,12 @@ import { create } from "zustand";
 
 import { extractHeadings } from "@/lib/markdown";
 import {
+  createMarkdownFile,
   deleteMarkdownFile,
   getInitialSession,
   readMarkdownFile,
   refreshSession,
+  renameMarkdownFile,
   writeMarkdownFile,
   type ScanProgressPayload,
 } from "@/lib/tauri";
@@ -45,6 +47,8 @@ interface AppStore {
   applyScanProgress: (payload: ScanProgressPayload) => Promise<void>;
   bootstrap: () => Promise<void>;
   openDocument: (relativePath: string) => Promise<void>;
+  createDocument: (relativePath: string, content?: string) => Promise<void>;
+  renameCurrentDocument: (toRelativePath: string) => Promise<void>;
   deleteCurrentDocument: () => Promise<void>;
   setDocumentMode: (mode: DocumentMode) => void;
   updateDraftContent: (content: string) => void;
@@ -71,11 +75,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
   setSidebarOpen: (open) => set({ isSidebarOpen: open }),
   applyScanProgress: async (payload) => {
     const state = get();
-    const { values: files, valueSet: fileSet } = mergeSortedUnique(
-      state.files,
-      state.fileSet,
-      payload.files,
-    );
+    const { values: files, valueSet: fileSet } = mergeSortedUnique(state.files, state.fileSet, payload.files);
     const { values: scanSkippedPaths, valueSet: scanSkippedPathSet } = mergeSortedUnique(
       state.scanSkippedPaths,
       state.scanSkippedPathSet,
@@ -167,13 +167,82 @@ export const useAppStore = create<AppStore>((set, get) => ({
       });
     }
   },
-  deleteCurrentDocument: async () => {
+  createDocument: async (relativePath, content = "") => {
+    const state = get();
+    if (state.document.isDirty && !confirmDiscardUnsavedChanges()) {
+      return;
+    }
+
+    const normalizedPath = normalizeRelativeMarkdownPath(relativePath);
+    if (!normalizedPath) {
+      return;
+    }
+
+    set({
+      error: null,
+      selectedFile: normalizedPath,
+      document: createLoadingDocument(),
+    });
+
+    try {
+      const document = await createMarkdownFile(normalizedPath, content);
+      const { values: files, valueSet: fileSet } = mergeSortedUnique(state.files, state.fileSet, [document.relativePath]);
+      set({
+        files,
+        fileSet,
+        selectedFile: document.relativePath,
+        document: {
+          ...createReadyDocument(document.content, document.headings),
+          mode: "edit",
+        },
+      });
+    } catch (error) {
+      set({
+        selectedFile: state.selectedFile,
+        document: createErrorDocument(error instanceof Error ? error.message : "문서를 생성하지 못했습니다."),
+      });
+    }
+  },
+  renameCurrentDocument: async (toRelativePath) => {
     const state = get();
     const current = state.selectedFile;
     if (!current) {
       return;
     }
-    if (!window.confirm(`정말로 \"${current}\" 문서를 삭제할까요?`)) {
+    if (state.document.isDirty && !confirmDiscardUnsavedChanges()) {
+      return;
+    }
+
+    const normalizedPath = normalizeRelativeMarkdownPath(toRelativePath);
+    if (!normalizedPath) {
+      return;
+    }
+
+    set({ document: createLoadingDocument() });
+
+    try {
+      const result = await renameMarkdownFile(current, normalizedPath);
+      const files = state.files
+        .filter((entry) => entry !== result.oldRelativePath)
+        .concat(result.document.relativePath)
+        .sort((a, b) => a.localeCompare(b));
+      set({
+        files,
+        fileSet: new Set(files),
+        selectedFile: result.document.relativePath,
+        document: createReadyDocument(result.document.content, result.document.headings),
+      });
+    } catch (error) {
+      set({
+        selectedFile: current,
+        document: createErrorDocument(error instanceof Error ? error.message : "문서 이름을 변경하지 못했습니다."),
+      });
+    }
+  },
+  deleteCurrentDocument: async () => {
+    const state = get();
+    const current = state.selectedFile;
+    if (!current) {
       return;
     }
 
@@ -419,6 +488,10 @@ function createErrorDocument(message: string): AppStore["document"] {
 
 function confirmDiscardUnsavedChanges() {
   return window.confirm("저장하지 않은 변경사항이 있습니다. 변경사항을 버리고 계속할까요?");
+}
+
+function normalizeRelativeMarkdownPath(relativePath: string) {
+  return relativePath.trim().replace(/^\/+/, "");
 }
 
 function isCurrentDocumentLoad(state: AppStore, requestPath: string, loadToken: number) {

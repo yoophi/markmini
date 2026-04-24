@@ -18,6 +18,11 @@ export interface MarkdownDocument {
   headings: HeadingItem[];
 }
 
+export interface RenameMarkdownResult {
+  oldRelativePath: string;
+  document: MarkdownDocument;
+}
+
 export interface DeleteMarkdownResult {
   deletedRelativePath: string;
   nextSelectedFile: string | null;
