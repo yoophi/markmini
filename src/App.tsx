@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Edit3, Eye, FilePenLine, FilePlus2, FileText, FolderTree, Menu, RefreshCcw, Save, TextSearch, Trash2 } from "lucide-react";
 
 import { FileTree } from "@/components/file-tree";
@@ -51,6 +52,7 @@ function App() {
   const [createPath, setCreatePath] = useState("untitled.md");
   const [renamePath, setRenamePath] = useState("");
   const [pendingUnsavedAction, setPendingUnsavedAction] = useState<PendingUnsavedAction | null>(null);
+  const allowWindowCloseRef = useRef(false);
 
   const canSaveDocument =
     document.state === "ready" &&
@@ -107,6 +109,63 @@ function App() {
 
     return () => window.clearTimeout(timer);
   }, [successMessage, successMessageId, clearSuccessMessage]);
+
+  useEffect(() => {
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (!document.isDirty || allowWindowCloseRef.current) {
+        return;
+      }
+
+      event.preventDefault();
+      event.returnValue = "";
+    };
+
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [document.isDirty]);
+
+  useEffect(() => {
+    let isDisposed = false;
+    let cleanup: (() => void) | undefined;
+
+    const setupCloseGuard = async () => {
+      try {
+        const appWindow = getCurrentWindow();
+        const unlisten = await appWindow.onCloseRequested(async (event) => {
+          if (allowWindowCloseRef.current || !document.isDirty) {
+            return;
+          }
+
+          event.preventDefault();
+          setPendingUnsavedAction({
+            title: "변경사항 버리고 앱 닫기",
+            description: "저장하지 않은 변경사항이 있습니다. 계속하면 현재 draft를 버리고 창을 닫습니다.",
+            confirmLabel: "버리고 닫기",
+            run: async () => {
+              allowWindowCloseRef.current = true;
+              await appWindow.close();
+            },
+          });
+        });
+
+        if (isDisposed) {
+          unlisten();
+          return;
+        }
+
+        cleanup = unlisten;
+      } catch {
+        // non-tauri surface
+      }
+    };
+
+    void setupCloseGuard();
+
+    return () => {
+      isDisposed = true;
+      cleanup?.();
+    };
+  }, [document.isDirty]);
 
   const selectedSegments = selectedFile?.split("/") ?? [];
   const selectedLabel = selectedSegments[selectedSegments.length - 1] ?? "문서를 선택하세요";
