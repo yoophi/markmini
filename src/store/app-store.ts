@@ -136,9 +136,6 @@ export const useAppStore = create<AppStore>((set, get) => ({
   openDocument: async (relativePath) => {
     const requestPath = relativePath;
     const current = get();
-    if (current.document.isDirty && !confirmDiscardUnsavedChanges()) {
-      return;
-    }
 
     const loadToken = current.documentLoadToken + 1;
     set({
@@ -169,9 +166,6 @@ export const useAppStore = create<AppStore>((set, get) => ({
   },
   createDocument: async (relativePath, content = "") => {
     const state = get();
-    if (state.document.isDirty && !confirmDiscardUnsavedChanges()) {
-      return;
-    }
 
     const normalizedPath = normalizeRelativeMarkdownPath(relativePath);
     if (!normalizedPath) {
@@ -207,9 +201,6 @@ export const useAppStore = create<AppStore>((set, get) => ({
     const state = get();
     const current = state.selectedFile;
     if (!current) {
-      return;
-    }
-    if (state.document.isDirty && !confirmDiscardUnsavedChanges()) {
       return;
     }
 
@@ -389,10 +380,6 @@ export const useAppStore = create<AppStore>((set, get) => ({
     const previousSelection = previousState.selectedFile;
     const hadDirtyDocument = previousState.document.isDirty;
 
-    if (hadDirtyDocument && !confirmDiscardUnsavedChanges()) {
-      return;
-    }
-
     try {
       const session = await refreshSession();
       const { values: files, valueSet: fileSet } = mergeSortedUnique([], new Set(), session.files);
@@ -484,10 +471,6 @@ function createErrorDocument(message: string): AppStore["document"] {
     state: "error",
     error: message,
   };
-}
-
-function confirmDiscardUnsavedChanges() {
-  return window.confirm("저장하지 않은 변경사항이 있습니다. 변경사항을 버리고 계속할까요?");
 }
 
 function normalizeRelativeMarkdownPath(relativePath: string) {

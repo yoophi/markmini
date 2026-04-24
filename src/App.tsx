@@ -11,6 +11,13 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/co
 import { useAppStore } from "@/store/app-store";
 import { subscribeToFsChanges, subscribeToScanProgress } from "@/store/fs-watcher";
 
+type PendingUnsavedAction = {
+  title: string;
+  description: string;
+  confirmLabel: string;
+  run: () => Promise<void> | void;
+};
+
 function App() {
   const bootstrap = useAppStore((state) => state.bootstrap);
   const openDocument = useAppStore((state) => state.openDocument);
@@ -40,6 +47,7 @@ function App() {
   const [isDeleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [createPath, setCreatePath] = useState("untitled.md");
   const [renamePath, setRenamePath] = useState("");
+  const [pendingUnsavedAction, setPendingUnsavedAction] = useState<PendingUnsavedAction | null>(null);
 
   const canSaveDocument =
     document.state === "ready" &&
@@ -94,30 +102,115 @@ function App() {
     return `"${selectedFile}" 문서를 삭제합니다. 삭제 후에는 복구되지 않습니다.`;
   }, [selectedFile]);
 
-  const handleCreateDocument = async () => {
+  const runGuardedAction = (action: PendingUnsavedAction) => {
+    if (document.isDirty) {
+      setPendingUnsavedAction(action);
+      return;
+    }
+
+    void action.run();
+  };
+
+  const handleOpenDocument = (file: string) => {
+    if (file === selectedFile) {
+      return;
+    }
+
+    runGuardedAction({
+      title: "변경사항 버리고 다른 문서 열기",
+      description: "저장하지 않은 변경사항이 있습니다. 계속하면 현재 편집 중인 내용이 사라지고 선택한 문서를 엽니다.",
+      confirmLabel: "버리고 열기",
+      run: async () => {
+        await openDocument(file);
+        setSidebarOpen(false);
+      },
+    });
+  };
+
+  const handleRefresh = () => {
+    runGuardedAction({
+      title: "변경사항 버리고 새로고침",
+      description: "저장하지 않은 변경사항이 있습니다. 계속하면 현재 draft를 버리고 디스크 기준 상태로 세션을 새로고침합니다.",
+      confirmLabel: "버리고 새로고침",
+      run: refresh,
+    });
+  };
+
+  const handleReloadFromDisk = () => {
+    runGuardedAction({
+      title: "변경사항 버리고 다시 불러오기",
+      description: "저장하지 않은 변경사항이 있습니다. 계속하면 현재 draft를 버리고 파일을 디스크 상태로 다시 불러옵니다.",
+      confirmLabel: "디스크에서 다시 불러오기",
+      run: async () => {
+        await reloadCurrentDocument(true);
+      },
+    });
+  };
+
+  const handleCreateDocument = () => {
     const nextPath = createPath.trim();
     if (!nextPath) {
       return;
     }
 
-    await createDocument(nextPath, "");
-    setCreateDialogOpen(false);
-    setCreatePath("untitled.md");
+    const execute = async () => {
+      await createDocument(nextPath, "");
+      setCreateDialogOpen(false);
+      setCreatePath("untitled.md");
+    };
+
+    if (document.isDirty) {
+      setCreateDialogOpen(false);
+      setPendingUnsavedAction({
+        title: "변경사항 버리고 새 문서 생성",
+        description: "저장하지 않은 변경사항이 있습니다. 계속하면 현재 draft를 버리고 새 문서를 생성해 엽니다.",
+        confirmLabel: "버리고 생성",
+        run: execute,
+      });
+      return;
+    }
+
+    void execute();
   };
 
-  const handleRenameDocument = async () => {
+  const handleRenameDocument = () => {
     const nextPath = renamePath.trim();
     if (!nextPath || !selectedFile) {
       return;
     }
 
-    await renameCurrentDocument(nextPath);
-    setRenameDialogOpen(false);
+    const execute = async () => {
+      await renameCurrentDocument(nextPath);
+      setRenameDialogOpen(false);
+    };
+
+    if (document.isDirty) {
+      setRenameDialogOpen(false);
+      setPendingUnsavedAction({
+        title: "변경사항 버리고 문서 이름 변경",
+        description: "저장하지 않은 변경사항이 있습니다. 계속하면 현재 draft를 버리고 저장된 파일 기준으로 이름을 변경합니다.",
+        confirmLabel: "버리고 변경",
+        run: execute,
+      });
+      return;
+    }
+
+    void execute();
   };
 
   const handleDeleteDocument = async () => {
     await deleteCurrentDocument();
     setDeleteDialogOpen(false);
+  };
+
+  const handleConfirmPendingUnsavedAction = async () => {
+    if (!pendingUnsavedAction) {
+      return;
+    }
+
+    const action = pendingUnsavedAction;
+    setPendingUnsavedAction(null);
+    await action.run();
   };
 
   return (
@@ -156,10 +249,7 @@ function App() {
                         scanState={scanState}
                         skippedCount={scanSkippedPaths.length}
                         selectedFile={selectedFile}
-                        onSelect={(file) => {
-                          void openDocument(file);
-                          setSidebarOpen(false);
-                        }}
+                        onSelect={handleOpenDocument}
                       />
                     </div>
                   </SheetContent>
@@ -180,7 +270,7 @@ function App() {
                   삭제
                 </Button>
 
-                <Button variant="outline" size="sm" onClick={() => void refresh()}>
+                <Button variant="outline" size="sm" onClick={handleRefresh}>
                   <RefreshCcw className="mr-2 h-4 w-4" />
                   새로고침
                 </Button>
@@ -201,7 +291,7 @@ function App() {
                     scanState={scanState}
                     skippedCount={scanSkippedPaths.length}
                     selectedFile={selectedFile}
-                    onSelect={(file) => void openDocument(file)}
+                    onSelect={handleOpenDocument}
                   />
                 </div>
               </aside>
@@ -243,7 +333,7 @@ function App() {
                         <div className="flex flex-wrap items-center justify-between gap-3">
                           <span>파일이 디스크에서 변경되었습니다.</span>
                           <div className="flex items-center gap-2">
-                            <Button variant="outline" size="sm" onClick={() => void reloadCurrentDocument(true)}>
+                            <Button variant="outline" size="sm" onClick={handleReloadFromDisk}>
                               디스크에서 다시 불러오기
                             </Button>
                             <Button variant="ghost" size="sm" onClick={keepDraftAfterExternalChange}>
@@ -273,7 +363,7 @@ function App() {
                         content={document.content}
                         currentRelativePath={selectedFile}
                         knownDocuments={files}
-                        onNavigate={openDocument}
+                        onNavigate={(path) => handleOpenDocument(path)}
                       />
                     ) : (
                       <EmptyReader />
@@ -306,7 +396,7 @@ function App() {
         onValueChange={setCreatePath}
         placeholder="untitled.md"
         confirmLabel="생성"
-        onConfirm={() => void handleCreateDocument()}
+        onConfirm={handleCreateDocument}
       />
 
       <FileActionDialog
@@ -318,7 +408,7 @@ function App() {
         onValueChange={setRenamePath}
         placeholder="docs/renamed.md"
         confirmLabel="변경"
-        onConfirm={() => void handleRenameDocument()}
+        onConfirm={handleRenameDocument}
       />
 
       <Dialog open={isDeleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
@@ -333,6 +423,25 @@ function App() {
             </Button>
             <Button disabled={!selectedFile} onClick={() => void handleDeleteDocument()}>
               삭제
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={pendingUnsavedAction !== null} onOpenChange={(open) => !open && setPendingUnsavedAction(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{pendingUnsavedAction?.title ?? "저장되지 않은 변경사항"}</DialogTitle>
+            <DialogDescription>
+              {pendingUnsavedAction?.description ?? "저장하지 않은 변경사항이 있습니다. 계속하면 현재 draft가 사라집니다."}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPendingUnsavedAction(null)}>
+              취소
+            </Button>
+            <Button onClick={() => void handleConfirmPendingUnsavedAction()}>
+              {pendingUnsavedAction?.confirmLabel ?? "계속"}
             </Button>
           </DialogFooter>
         </DialogContent>
