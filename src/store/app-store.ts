@@ -2,6 +2,7 @@ import { create } from "zustand";
 
 import { extractHeadings } from "@/lib/markdown";
 import {
+  deleteMarkdownFile,
   getInitialSession,
   readMarkdownFile,
   refreshSession,
@@ -44,6 +45,7 @@ interface AppStore {
   applyScanProgress: (payload: ScanProgressPayload) => Promise<void>;
   bootstrap: () => Promise<void>;
   openDocument: (relativePath: string) => Promise<void>;
+  deleteCurrentDocument: () => Promise<void>;
   setDocumentMode: (mode: DocumentMode) => void;
   updateDraftContent: (content: string) => void;
   saveCurrentDocument: () => Promise<void>;
@@ -162,6 +164,38 @@ export const useAppStore = create<AppStore>((set, get) => ({
 
       set({
         document: createErrorDocument(error instanceof Error ? error.message : "문서를 열지 못했습니다."),
+      });
+    }
+  },
+  deleteCurrentDocument: async () => {
+    const state = get();
+    const current = state.selectedFile;
+    if (!current) {
+      return;
+    }
+    if (!window.confirm(`정말로 \"${current}\" 문서를 삭제할까요?`)) {
+      return;
+    }
+
+    set({ document: createLoadingDocument() });
+
+    try {
+      const result = await deleteMarkdownFile(current);
+      const files = state.files.filter((entry) => entry !== result.deletedRelativePath);
+      set({
+        files,
+        fileSet: new Set(files),
+        selectedFile: result.nextSelectedFile,
+        document: result.nextSelectedFile ? createLoadingDocument() : createEmptyDocument(),
+      });
+
+      if (result.nextSelectedFile) {
+        await get().openDocument(result.nextSelectedFile);
+      }
+    } catch (error) {
+      set({
+        selectedFile: current,
+        document: createErrorDocument(error instanceof Error ? error.message : "문서를 삭제하지 못했습니다."),
       });
     }
   },

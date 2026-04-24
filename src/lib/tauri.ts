@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
-import type { InitialSession, MarkdownDocument, ScanStatus } from "@/types/content";
+import type { DeleteMarkdownResult, InitialSession, MarkdownDocument, ScanStatus } from "@/types/content";
 
 export interface FsChangePayload {
   changedPaths: string[];
@@ -33,6 +33,10 @@ export function readMarkdownFile(relativePath: string) {
 
 export function writeMarkdownFile(relativePath: string, content: string) {
   return invoke<MarkdownDocument>("write_markdown_file", { relativePath, content });
+}
+
+export function deleteMarkdownFile(relativePath: string) {
+  return invoke<DeleteMarkdownResult>("delete_markdown_file", { relativePath });
 }
 
 export function listenToFsChanges(handler: (payload: FsChangePayload) => void): Promise<UnlistenFn> {

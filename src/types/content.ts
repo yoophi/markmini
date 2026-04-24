@@ -17,3 +17,8 @@ export interface MarkdownDocument {
   content: string;
   headings: HeadingItem[];
 }
+
+export interface DeleteMarkdownResult {
+  deletedRelativePath: string;
+  nextSelectedFile: string | null;
+}

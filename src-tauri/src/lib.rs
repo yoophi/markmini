@@ -42,6 +42,13 @@ struct MarkdownDocument {
     headings: Vec<HeadingItem>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DeleteMarkdownResult {
+    deleted_relative_path: String,
+    next_selected_file: Option<String>,
+}
+
 #[derive(Debug, Clone)]
 struct SessionState {
     root_dir: PathBuf,
@@ -229,6 +236,54 @@ fn write_markdown_file(
     })
 }
 
+#[tauri::command]
+fn delete_markdown_file(
+    relative_path: String,
+    window: tauri::WebviewWindow,
+    state: tauri::State<'_, AppState>,
+) -> Result<DeleteMarkdownResult, String> {
+    let mut sessions = state
+        .sessions
+        .lock()
+        .map_err(|_| "failed to acquire sessions lock".to_string())?;
+
+    let session = sessions
+        .get_mut(window.label())
+        .ok_or_else(|| format!("no session for window {}", window.label()))?;
+
+    if !session.files.iter().any(|entry| entry == &relative_path) {
+        return Err(format!(
+            "document is not available in the current root: {}",
+            relative_path
+        ));
+    }
+
+    let file_path = session.root_dir.join(&relative_path);
+    let canonical_file =
+        canonical_file_inside_root(&session.canonical_root_dir, &file_path, &relative_path)?;
+    fs::remove_file(&canonical_file).map_err(|error| {
+        format!(
+            "failed to delete markdown file {}: {}",
+            canonical_file.display(),
+            error
+        )
+    })?;
+
+    session.files.retain(|entry| entry != &relative_path);
+    let next_selected_file = if session.selected_file.as_deref() == Some(&relative_path) {
+        let next = pick_default_document(&session.files);
+        session.selected_file = next.clone();
+        next
+    } else {
+        session.selected_file.clone()
+    };
+
+    Ok(DeleteMarkdownResult {
+        deleted_relative_path: relative_path,
+        next_selected_file,
+    })
+}
+
 // ---------------------------------------------------------------------------
 // Application entry point
 // ---------------------------------------------------------------------------
@@ -283,7 +338,8 @@ pub fn run() {
             get_initial_session,
             refresh_session,
             read_markdown_file,
-            write_markdown_file
+            write_markdown_file,
+            delete_markdown_file
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

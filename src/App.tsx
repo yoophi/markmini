@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { Edit3, Eye, FileText, FolderTree, Menu, RefreshCcw, Save, TextSearch } from "lucide-react";
+import { Edit3, Eye, FileText, FolderTree, Menu, RefreshCcw, Save, TextSearch, Trash2 } from "lucide-react";
 
 import { FileTree } from "@/components/file-tree";
 import { MarkdownView } from "@/components/markdown-view";
@@ -13,6 +13,7 @@ import { subscribeToFsChanges, subscribeToScanProgress } from "@/store/fs-watche
 function App() {
   const bootstrap = useAppStore((state) => state.bootstrap);
   const openDocument = useAppStore((state) => state.openDocument);
+  const deleteCurrentDocument = useAppStore((state) => state.deleteCurrentDocument);
   const refresh = useAppStore((state) => state.refresh);
   const setDocumentMode = useAppStore((state) => state.setDocumentMode);
   const updateDraftContent = useAppStore((state) => state.updateDraftContent);
@@ -114,6 +115,11 @@ function App() {
                   </div>
                 </SheetContent>
               </Sheet>
+
+              <Button variant="outline" size="sm" disabled={!selectedFile} onClick={() => void deleteCurrentDocument()}>
+                <Trash2 className="mr-2 h-4 w-4" />
+                삭제
+              </Button>
 
               <Button variant="outline" size="sm" onClick={() => void refresh()}>
                 <RefreshCcw className="mr-2 h-4 w-4" />
