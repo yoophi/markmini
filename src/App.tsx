@@ -138,9 +138,9 @@ function App() {
 
           event.preventDefault();
           setPendingUnsavedAction({
-            title: "변경사항 버리고 앱 닫기",
-            description: "저장하지 않은 변경사항이 있습니다. 계속하면 현재 draft를 버리고 창을 닫습니다.",
-            confirmLabel: "버리고 닫기",
+            title: "저장하지 않은 변경사항이 있습니다",
+            description: "이 창을 닫으면 현재 문서의 저장되지 않은 편집 내용이 사라집니다. 저장 후 닫거나, 변경사항을 버리고 닫을 수 있습니다.",
+            confirmLabel: "변경사항 버리고 닫기",
             run: async () => {
               allowWindowCloseRef.current = true;
               await appWindow.close();
@@ -191,9 +191,9 @@ function App() {
     }
 
     runGuardedAction({
-      title: "변경사항 버리고 다른 문서 열기",
-      description: "저장하지 않은 변경사항이 있습니다. 계속하면 현재 편집 중인 내용이 사라지고 선택한 문서를 엽니다.",
-      confirmLabel: "버리고 열기",
+      title: "다른 문서를 열기 전에 확인해주세요",
+      description: "지금 문서의 저장되지 않은 편집 내용이 있습니다. 계속하면 현재 편집본은 사라지고, 선택한 문서를 엽니다.",
+      confirmLabel: "변경사항 버리고 열기",
       run: async () => {
         await openDocument(file);
         setSidebarOpen(false);
@@ -203,18 +203,18 @@ function App() {
 
   const handleRefresh = () => {
     runGuardedAction({
-      title: "변경사항 버리고 새로고침",
-      description: "저장하지 않은 변경사항이 있습니다. 계속하면 현재 draft를 버리고 디스크 기준 상태로 세션을 새로고침합니다.",
-      confirmLabel: "버리고 새로고침",
+      title: "새로고침 전에 확인해주세요",
+      description: "저장하지 않은 편집 내용이 있습니다. 계속하면 현재 편집본을 버리고, 디스크 기준 상태로 목록과 문서를 다시 불러옵니다.",
+      confirmLabel: "변경사항 버리고 새로고침",
       run: refresh,
     });
   };
 
   const handleReloadFromDisk = () => {
     runGuardedAction({
-      title: "변경사항 버리고 다시 불러오기",
-      description: "저장하지 않은 변경사항이 있습니다. 계속하면 현재 draft를 버리고 파일을 디스크 상태로 다시 불러옵니다.",
-      confirmLabel: "디스크에서 다시 불러오기",
+      title: "디스크의 파일로 되돌릴까요?",
+      description: "저장하지 않은 편집 내용이 있습니다. 계속하면 현재 편집본을 버리고, 파일을 디스크에 저장된 상태로 다시 불러옵니다.",
+      confirmLabel: "변경사항 버리고 다시 불러오기",
       run: async () => {
         await reloadCurrentDocument(true);
       },
@@ -236,9 +236,9 @@ function App() {
     if (document.isDirty) {
       setCreateDialogOpen(false);
       setPendingUnsavedAction({
-        title: "변경사항 버리고 새 문서 생성",
-        description: "저장하지 않은 변경사항이 있습니다. 계속하면 현재 draft를 버리고 새 문서를 생성해 엽니다.",
-        confirmLabel: "버리고 생성",
+        title: "새 문서를 만들기 전에 확인해주세요",
+        description: "현재 문서의 저장되지 않은 편집 내용이 있습니다. 계속하면 지금 편집본은 사라지고, 새 문서를 만들어 바로 엽니다.",
+        confirmLabel: "변경사항 버리고 생성",
         run: execute,
       });
       return;
@@ -261,9 +261,9 @@ function App() {
     if (document.isDirty) {
       setRenameDialogOpen(false);
       setPendingUnsavedAction({
-        title: "변경사항 버리고 문서 이름 변경",
-        description: "저장하지 않은 변경사항이 있습니다. 계속하면 현재 draft를 버리고 저장된 파일 기준으로 이름을 변경합니다.",
-        confirmLabel: "버리고 변경",
+        title: "이름 변경 전에 확인해주세요",
+        description: "저장하지 않은 편집 내용이 있습니다. 계속하면 현재 편집본은 사라지고, 마지막으로 저장된 파일 기준으로 이름을 변경합니다.",
+        confirmLabel: "변경사항 버리고 변경",
         run: execute,
       });
       return;
@@ -530,7 +530,7 @@ function App() {
           <DialogHeader>
             <DialogTitle>{pendingUnsavedAction?.title ?? "저장되지 않은 변경사항"}</DialogTitle>
             <DialogDescription>
-              {pendingUnsavedAction?.description ?? "저장하지 않은 변경사항이 있습니다. 계속하면 현재 draft가 사라집니다."}
+              {pendingUnsavedAction?.description ?? "저장하지 않은 편집 내용이 있습니다. 저장 후 계속하거나, 변경사항을 버리고 진행할 수 있습니다."}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
