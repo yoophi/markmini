@@ -287,6 +287,23 @@ function App() {
     await action.run();
   };
 
+  const handleSaveAndContinuePendingAction = async () => {
+    if (!pendingUnsavedAction) {
+      return;
+    }
+
+    await saveCurrentDocument();
+
+    const latestDocument = useAppStore.getState().document;
+    if (latestDocument.isDirty || latestDocument.error) {
+      return;
+    }
+
+    const action = pendingUnsavedAction;
+    setPendingUnsavedAction(null);
+    await action.run();
+  };
+
   return (
     <>
       <div className="min-h-screen bg-background text-foreground">
@@ -519,6 +536,9 @@ function App() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setPendingUnsavedAction(null)}>
               취소
+            </Button>
+            <Button variant="outline" disabled={!canSaveDocument} onClick={() => void handleSaveAndContinuePendingAction()}>
+              {document.isSaving ? "저장 중" : "저장 후 계속"}
             </Button>
             <Button onClick={() => void handleConfirmPendingUnsavedAction()}>
               {pendingUnsavedAction?.confirmLabel ?? "계속"}
