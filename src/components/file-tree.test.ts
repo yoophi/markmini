@@ -131,6 +131,7 @@ describe("document tree sorting", () => {
   it("parses unknown sort modes as name sort", () => {
     expect(parseSortMode("path")).toBe("path");
     expect(parseSortMode("modified")).toBe("modified");
+    expect(parseSortMode("size")).toBe("size");
     expect(parseSortMode(null)).toBe("name");
   });
 
@@ -160,6 +161,22 @@ describe("document tree sorting", () => {
 
     expect(tree.map((node) => node.path)).toEqual(["notes", "docs", "old.md"]);
     expect(tree[1]?.children.map((node) => node.path)).toEqual(["docs/newer.md", "docs/older.md"]);
+  });
+
+  it("sorts files and directories by largest file size when metadata is available", () => {
+    const tree = buildTree(
+      ["small.md", "docs/medium.md", "docs/large.md", "notes/largest.md"],
+      "size",
+      {
+        "small.md": { relativePath: "small.md", modifiedAt: 10, sizeBytes: 10 },
+        "docs/medium.md": { relativePath: "docs/medium.md", modifiedAt: 20, sizeBytes: 200 },
+        "docs/large.md": { relativePath: "docs/large.md", modifiedAt: 30, sizeBytes: 300 },
+        "notes/largest.md": { relativePath: "notes/largest.md", modifiedAt: 40, sizeBytes: 400 },
+      },
+    );
+
+    expect(tree.map((node) => node.path)).toEqual(["notes", "docs", "small.md"]);
+    expect(tree[1]?.children.map((node) => node.path)).toEqual(["docs/large.md", "docs/medium.md"]);
   });
 });
 
