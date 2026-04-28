@@ -1089,8 +1089,11 @@ mod tests {
     use notify::event::{CreateKind, DataChange, RemoveKind, RenameMode};
     use std::{
         fs,
+        sync::atomic::{AtomicU64, Ordering},
         time::{SystemTime, UNIX_EPOCH},
     };
+
+    static TEST_DIR_COUNTER: AtomicU64 = AtomicU64::new(0);
 
     struct TestDir {
         path: PathBuf,
@@ -1102,8 +1105,13 @@ mod tests {
                 .duration_since(UNIX_EPOCH)
                 .expect("system clock should be after Unix epoch")
                 .as_nanos();
-            let path =
-                env::temp_dir().join(format!("markmini-test-{}-{}", std::process::id(), unique));
+            let counter = TEST_DIR_COUNTER.fetch_add(1, Ordering::Relaxed);
+            let path = env::temp_dir().join(format!(
+                "markmini-test-{}-{}-{}",
+                std::process::id(),
+                unique,
+                counter
+            ));
             fs::create_dir_all(&path).expect("test directory should be created");
             Self { path }
         }
