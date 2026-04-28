@@ -1,5 +1,5 @@
 import { type KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, ChevronRight, FileText, Folder, FolderOpen } from "lucide-react";
+import { ChevronDown, ChevronRight, FileText, Folder, FolderOpen, Search } from "lucide-react";
 
 import { fileLabel } from "@/lib/path";
 import { cn } from "@/lib/utils";
@@ -16,8 +16,12 @@ interface FileTreeProps {
 }
 
 export function FileTree({ files, scanState, skippedCount, selectedFile, onSelect }: FileTreeProps) {
-  const tree = useMemo(() => buildTree(files), [files]);
+  const [searchQuery, setSearchQuery] = useState("");
+  const normalizedSearchQuery = searchQuery.trim().toLocaleLowerCase();
+  const filteredFiles = useMemo(() => filterFiles(files, normalizedSearchQuery), [files, normalizedSearchQuery]);
+  const tree = useMemo(() => buildTree(filteredFiles), [filteredFiles]);
   const directoryPaths = useMemo(() => collectDirectoryPaths(tree), [tree]);
+  const selectedFileIsFilteredOut = Boolean(normalizedSearchQuery && selectedFile && !filteredFiles.includes(selectedFile));
   const hasInitializedExpansionRef = useRef(false);
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(() => new Set());
   const [focusedPath, setFocusedPath] = useState<string | null>(selectedFile);
@@ -26,9 +30,11 @@ export function FileTree({ files, scanState, skippedCount, selectedFile, onSelec
   useEffect(() => {
     setExpandedPaths((current) => {
       const knownDirectories = new Set(directoryPaths);
-      const next = hasInitializedExpansionRef.current
-        ? new Set([...current].filter((path) => knownDirectories.has(path)))
-        : new Set(directoryPaths);
+      const next = normalizedSearchQuery
+        ? new Set(directoryPaths)
+        : hasInitializedExpansionRef.current
+          ? new Set([...current].filter((path) => knownDirectories.has(path)))
+          : new Set(directoryPaths);
 
       for (const path of selectedFile ? ancestorDirectoryPaths(selectedFile) : []) {
         next.add(path);
@@ -37,7 +43,7 @@ export function FileTree({ files, scanState, skippedCount, selectedFile, onSelec
       hasInitializedExpansionRef.current = true;
       return next;
     });
-  }, [directoryPaths, selectedFile]);
+  }, [directoryPaths, normalizedSearchQuery, selectedFile]);
 
   const renderedItems = useMemo(() => flattenVisibleTree(tree, expandedPaths), [expandedPaths, tree]);
   const currentFocusPath =
@@ -149,13 +155,24 @@ export function FileTree({ files, scanState, skippedCount, selectedFile, onSelec
   };
 
   return (
-    <Card className="h-full overflow-hidden">
+    <Card className="flex h-full flex-col overflow-hidden">
       <CardHeader className="border-b border-border/60 pb-4">
         <div className="flex items-center justify-between gap-3">
           <CardTitle className="text-lg">Documents</CardTitle>
           <span className="rounded-md bg-secondary px-2 py-1 text-xs font-medium text-secondary-foreground">
-            {files.length}
+            {normalizedSearchQuery ? `${filteredFiles.length}/${files.length}` : files.length}
           </span>
+        </div>
+        <div className="relative mt-3">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <input
+            type="search"
+            value={searchQuery}
+            onChange={(event) => setSearchQuery(event.target.value)}
+            placeholder="문서 검색"
+            aria-label="문서 검색"
+            className="h-9 w-full rounded-md border border-border bg-background pl-9 pr-3 text-sm text-foreground outline-none transition placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+          />
         </div>
         {scanState === "scanning" || skippedCount > 0 ? (
           <div className="mt-2 flex items-center justify-between gap-3 text-xs text-muted-foreground">
@@ -164,13 +181,20 @@ export function FileTree({ files, scanState, skippedCount, selectedFile, onSelec
           </div>
         ) : null}
       </CardHeader>
-      <CardContent className="h-[calc(100%-78px)] p-0">
+      <CardContent className="min-h-0 flex-1 p-0">
         <ScrollArea className="h-full">
           <div className="px-2 py-3">
+            {selectedFileIsFilteredOut ? (
+              <div className="mb-3 rounded-md border border-border bg-muted/40 px-3 py-2 text-xs leading-5 text-muted-foreground">
+                현재 선택된 문서는 검색 결과에 없습니다. 검색어를 지우면 다시 표시됩니다.
+              </div>
+            ) : null}
             {tree.length === 0 ? (
               <div className="rounded-md border border-dashed border-border px-3 py-8 text-center">
                 <Folder className="mx-auto h-5 w-5 text-muted-foreground" />
-                <p className="mt-3 text-sm leading-6 text-muted-foreground">표시할 markdown 파일이 없습니다.</p>
+                <p className="mt-3 text-sm leading-6 text-muted-foreground">
+                  {normalizedSearchQuery ? "검색 결과가 없습니다." : "표시할 markdown 파일이 없습니다."}
+                </p>
               </div>
             ) : (
               <ul
@@ -335,6 +359,18 @@ function ancestorDirectoryPaths(path: string) {
   const segments = path.split("/");
   segments.pop();
   return segments.map((_, index) => segments.slice(0, index + 1).join("/"));
+}
+
+function filterFiles(files: string[], normalizedSearchQuery: string) {
+  if (!normalizedSearchQuery) {
+    return files;
+  }
+
+  return files.filter((file) => {
+    const normalizedPath = file.toLocaleLowerCase();
+    const normalizedLabel = fileLabel(file).toLocaleLowerCase();
+    return normalizedPath.includes(normalizedSearchQuery) || normalizedLabel.includes(normalizedSearchQuery);
+  });
 }
 
 function buildTree(files: string[]) {
