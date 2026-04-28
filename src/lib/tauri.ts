@@ -31,10 +31,6 @@ export function readMarkdownFile(relativePath: string) {
   return invoke<MarkdownDocument>("read_markdown_file", { relativePath });
 }
 
-export function writeMarkdownFile(relativePath: string, content: string) {
-  return invoke<MarkdownDocument>("write_markdown_file", { relativePath, content });
-}
-
 export function listenToFsChanges(handler: (payload: FsChangePayload) => void): Promise<UnlistenFn> {
   return listen<FsChangePayload>(FS_CHANGE_EVENT, (event) => handler(event.payload));
 }
