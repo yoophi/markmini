@@ -19,6 +19,7 @@ function renderFileTree(options: Partial<React.ComponentProps<typeof FileTree>> 
     return (
       <FileTree
         files={files}
+        fileMetadata={{}}
         scanState="completed"
         skippedCount={0}
         selectedFile="docs/guide.md"
@@ -120,6 +121,7 @@ describe("FileTree search", () => {
       return (
         <FileTree
           files={["docs/guide.md", "alpha.md"]}
+          fileMetadata={{}}
           scanState="completed"
           skippedCount={0}
           selectedFile="alpha.md"
@@ -143,6 +145,19 @@ describe("FileTree search", () => {
     expect(within(screen.getByRole("tree")).getAllByRole("treeitem")[0].textContent).toContain("alpha");
     expect(screen.queryByText("Favorites")).not.toBeNull();
     expect(screen.queryByText("Recent")).not.toBeNull();
+  });
+
+  it("sorts documents by modified time when metadata is available", () => {
+    renderFileTree({
+      files: ["old.md", "new.md"],
+      fileMetadata: {
+        "old.md": { relativePath: "old.md", modifiedAt: 100 },
+        "new.md": { relativePath: "new.md", modifiedAt: 200 },
+      },
+      sortMode: "modified",
+    });
+
+    expect(within(screen.getByRole("tree")).getAllByRole("treeitem")[0].textContent).toContain("new");
   });
 
   it("clears the search query with the clear button", () => {

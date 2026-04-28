@@ -31,6 +31,7 @@ function App() {
   const successMessageId = useAppStore((state) => state.successMessageId);
   const clearSuccessMessage = useAppStore((state) => state.clearSuccessMessage);
   const files = useAppStore((state) => state.files);
+  const fileMetadata = useAppStore((state) => state.fileMetadata);
   const scanState = useAppStore((state) => state.scanState);
   const scanSkippedPaths = useAppStore((state) => state.scanSkippedPaths);
   const scanError = useAppStore((state) => state.scanError);
@@ -261,6 +262,7 @@ function App() {
                     <div className="h-[calc(100vh-72px)] overflow-hidden">
                       <FileTree
                         files={files}
+                        fileMetadata={fileMetadata}
                         scanState={scanState}
                         skippedCount={scanSkippedPaths.length}
                         selectedFile={selectedFile}
@@ -309,6 +311,7 @@ function App() {
                 <div className="sticky top-4 h-[calc(100vh-8rem)]">
                   <FileTree
                     files={files}
+                    fileMetadata={fileMetadata}
                     scanState={scanState}
                     skippedCount={scanSkippedPaths.length}
                     selectedFile={selectedFile}

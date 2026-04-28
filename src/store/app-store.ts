@@ -11,12 +11,12 @@ import {
   writeMarkdownFile,
   type ScanProgressPayload,
 } from "@/lib/tauri";
-import type { HeadingItem, ScanStatus } from "@/types/content";
+import type { HeadingItem, MarkdownFileMetadata, ScanStatus } from "@/types/content";
 
 type BootstrapState = "idle" | "loading" | "ready" | "error";
 type DocumentState = "idle" | "loading" | "ready" | "error";
 type DocumentMode = "preview" | "edit";
-type DocumentSortMode = "path" | "name";
+type DocumentSortMode = "path" | "name" | "modified";
 
 interface AppStore {
   bootstrapState: BootstrapState;
@@ -24,6 +24,7 @@ interface AppStore {
   rootDir: string | null;
   files: string[];
   fileSet: ReadonlySet<string>;
+  fileMetadata: Record<string, MarkdownFileMetadata>;
   scanState: ScanStatus;
   scanSkippedPaths: string[];
   scanSkippedPathSet: ReadonlySet<string>;
@@ -75,6 +76,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
   rootDir: null,
   files: [],
   fileSet: new Set(),
+  fileMetadata: {},
   scanState: "idle",
   scanSkippedPaths: [],
   scanSkippedPathSet: new Set(),
@@ -105,6 +107,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
   applyScanProgress: async (payload) => {
     const state = get();
     const { values: files, valueSet: fileSet } = mergeSortedUnique(state.files, state.fileSet, payload.files);
+    const fileMetadata = mergeFileMetadata(state.fileMetadata, payload.fileMetadata);
     const { values: scanSkippedPaths, valueSet: scanSkippedPathSet } = mergeSortedUnique(
       state.scanSkippedPaths,
       state.scanSkippedPathSet,
@@ -119,6 +122,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
       bootstrapState: state.bootstrapState === "loading" ? "ready" : state.bootstrapState,
       files,
       fileSet,
+      fileMetadata,
       scanState: payload.status,
       scanSkippedPaths,
       scanSkippedPathSet,
@@ -144,6 +148,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
     try {
       const session = await getInitialSession();
       const { values: files, valueSet: fileSet } = mergeSortedUnique([], new Set(), session.files);
+      const fileMetadata = fileMetadataByPath(session.fileMetadata);
       const favoriteDocuments = loadFavoriteDocuments(session.rootDir, fileSet);
       const recentDocuments = loadRecentDocuments(session.rootDir, fileSet);
       set({
@@ -151,6 +156,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
         rootDir: session.rootDir,
         files,
         fileSet,
+        fileMetadata,
         favoriteDocuments,
         recentDocuments,
         selectedFile: session.selectedFile,
@@ -218,12 +224,14 @@ export const useAppStore = create<AppStore>((set, get) => ({
     try {
       const document = await createMarkdownFile(normalizedPath, content);
       const { values: files, valueSet: fileSet } = mergeSortedUnique(state.files, state.fileSet, [document.relativePath]);
+      const fileMetadata = mergeFileMetadata(state.fileMetadata, [{ relativePath: document.relativePath, modifiedAt: Date.now() }]);
       set((state) => {
         const recentDocuments = addRecentDocument(state.recentDocuments, document.relativePath);
         persistRecentDocuments(state.rootDir, recentDocuments);
         return {
           files,
           fileSet,
+          fileMetadata,
           selectedFile: document.relativePath,
           recentDocuments,
           successMessage: `새 문서를 만들었습니다: ${document.relativePath}`,
@@ -261,6 +269,10 @@ export const useAppStore = create<AppStore>((set, get) => ({
         .filter((entry) => entry !== result.oldRelativePath)
         .concat(result.document.relativePath)
         .sort((a, b) => a.localeCompare(b));
+      const { [result.oldRelativePath]: oldMetadata, ...remainingFileMetadata } = state.fileMetadata;
+      const fileMetadata = mergeFileMetadata(remainingFileMetadata, [
+        { relativePath: result.document.relativePath, modifiedAt: oldMetadata?.modifiedAt ?? Date.now() },
+      ]);
       set((state) => {
         const favoriteDocuments = state.favoriteDocuments.includes(result.oldRelativePath)
           ? [result.document.relativePath, ...state.favoriteDocuments.filter((entry) => entry !== result.oldRelativePath)]
@@ -274,6 +286,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
         return {
           files,
           fileSet: new Set(files),
+          fileMetadata,
           selectedFile: result.document.relativePath,
           favoriteDocuments,
           recentDocuments,
@@ -301,6 +314,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
     try {
       const result = await deleteMarkdownFile(current);
       const files = state.files.filter((entry) => entry !== result.deletedRelativePath);
+      const { [result.deletedRelativePath]: _deletedMetadata, ...fileMetadata } = state.fileMetadata;
       set((state) => {
         const favoriteDocuments = state.favoriteDocuments.filter((entry) => entry !== result.deletedRelativePath);
         const recentDocuments = state.recentDocuments.filter((entry) => entry !== result.deletedRelativePath);
@@ -309,6 +323,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
         return {
           files,
           fileSet: new Set(files),
+          fileMetadata,
           selectedFile: result.nextSelectedFile,
           favoriteDocuments,
           recentDocuments,
@@ -456,6 +471,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
     try {
       const session = await refreshSession();
       const { values: files, valueSet: fileSet } = mergeSortedUnique([], new Set(), session.files);
+      const fileMetadata = fileMetadataByPath(session.fileMetadata);
       const favoriteDocuments = previousState.favoriteDocuments.filter((entry) => fileSet.has(entry));
       const recentDocuments = previousState.recentDocuments.filter((entry) => fileSet.has(entry));
       persistFavoriteDocuments(session.rootDir, favoriteDocuments);
@@ -466,6 +482,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
         rootDir: session.rootDir,
         files,
         fileSet,
+        fileMetadata,
         favoriteDocuments,
         recentDocuments,
         scanState: "completed",
@@ -563,6 +580,23 @@ function isCurrentDocumentLoad(state: AppStore, requestPath: string, loadToken: 
 
 function addRecentDocument(recentDocuments: string[], relativePath: string) {
   return [relativePath, ...recentDocuments.filter((entry) => entry !== relativePath)].slice(0, 5);
+}
+
+function fileMetadataByPath(fileMetadata: MarkdownFileMetadata[]) {
+  return fileMetadata.reduce<Record<string, MarkdownFileMetadata>>((metadataByPath, metadata) => {
+    metadataByPath[metadata.relativePath] = metadata;
+    return metadataByPath;
+  }, {});
+}
+
+function mergeFileMetadata(
+  current: Record<string, MarkdownFileMetadata>,
+  incoming: MarkdownFileMetadata[],
+): Record<string, MarkdownFileMetadata> {
+  return {
+    ...current,
+    ...fileMetadataByPath(incoming),
+  };
 }
 
 function loadFavoriteDocuments(rootDir: string, fileSet: ReadonlySet<string>) {

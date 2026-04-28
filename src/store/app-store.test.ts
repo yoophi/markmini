@@ -33,6 +33,7 @@ function resetStore() {
     rootDir: null,
     files: [],
     fileSet: new Set(),
+    fileMetadata: {},
     scanState: "idle",
     scanSkippedPaths: [],
     scanSkippedPathSet: new Set(),
@@ -107,11 +108,19 @@ describe("app store document safety flows", () => {
     vi.mocked(getInitialSession).mockResolvedValue({
       rootDir: "/vault",
       files: ["notes/a.md", "notes/b.md"],
+      fileMetadata: [
+        { relativePath: "notes/a.md", modifiedAt: 100 },
+        { relativePath: "notes/b.md", modifiedAt: 200 },
+      ],
       selectedFile: null,
     });
 
     await useAppStore.getState().bootstrap();
 
+    expect(useAppStore.getState().fileMetadata).toEqual({
+      "notes/a.md": { relativePath: "notes/a.md", modifiedAt: 100 },
+      "notes/b.md": { relativePath: "notes/b.md", modifiedAt: 200 },
+    });
     expect(useAppStore.getState().favoriteDocuments).toEqual(["notes/b.md", "notes/a.md"]);
     expect(useAppStore.getState().recentDocuments).toEqual(["notes/a.md", "notes/b.md"]);
     expect(JSON.parse(localStorage.getItem("markmini:favorite-documents:/vault") ?? "[]")).toEqual(["notes/b.md", "notes/a.md"]);

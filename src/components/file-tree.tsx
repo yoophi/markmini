@@ -5,12 +5,13 @@ import { fileLabel } from "@/lib/path";
 import { cn } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import type { ScanStatus } from "@/types/content";
+import type { MarkdownFileMetadata, ScanStatus } from "@/types/content";
 
-type DocumentSortMode = "path" | "name";
+type DocumentSortMode = "path" | "name" | "modified";
 
 interface FileTreeProps {
   files: string[];
+  fileMetadata: Record<string, MarkdownFileMetadata>;
   scanState: ScanStatus;
   skippedCount: number;
   selectedFile: string | null;
@@ -25,6 +26,7 @@ interface FileTreeProps {
 
 export function FileTree({
   files,
+  fileMetadata,
   scanState,
   skippedCount,
   selectedFile,
@@ -37,7 +39,10 @@ export function FileTree({
   onSelect,
 }: FileTreeProps) {
   const normalizedSearchQuery = searchQuery.trim().toLocaleLowerCase();
-  const filteredFiles = useMemo(() => sortFiles(filterFiles(files, normalizedSearchQuery), sortMode), [files, normalizedSearchQuery, sortMode]);
+  const filteredFiles = useMemo(
+    () => sortFiles(filterFiles(files, normalizedSearchQuery), sortMode, fileMetadata),
+    [fileMetadata, files, normalizedSearchQuery, sortMode],
+  );
   const tree = useMemo(() => buildTree(filteredFiles, sortMode), [filteredFiles, sortMode]);
   const visibleFavoriteDocuments = useMemo(() => favoriteDocuments.filter((file) => files.includes(file)), [favoriteDocuments, files]);
   const visibleRecentDocuments = useMemo(() => recentDocuments.filter((file) => files.includes(file)), [files, recentDocuments]);
@@ -244,6 +249,7 @@ export function FileTree({
           >
             <option value="path">경로순</option>
             <option value="name">이름순</option>
+            <option value="modified">수정시간순</option>
           </select>
         </div>
         {scanState === "scanning" || skippedCount > 0 ? (
@@ -529,8 +535,15 @@ function filterFiles(files: string[], normalizedSearchQuery: string) {
   });
 }
 
-function sortFiles(files: string[], sortMode: DocumentSortMode) {
+function sortFiles(files: string[], sortMode: DocumentSortMode, fileMetadata: Record<string, MarkdownFileMetadata>) {
   return [...files].sort((left, right) => {
+    if (sortMode === "modified") {
+      const leftModified = fileMetadata[left]?.modifiedAt ?? 0;
+      const rightModified = fileMetadata[right]?.modifiedAt ?? 0;
+      if (leftModified !== rightModified) {
+        return rightModified - leftModified;
+      }
+    }
     if (sortMode === "name") {
       const labelComparison = fileLabel(left).localeCompare(fileLabel(right));
       if (labelComparison !== 0) {
