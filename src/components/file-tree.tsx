@@ -8,7 +8,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import type { ScanStatus } from "@/types/content";
 import type { MarkdownFileMetadata } from "@/types/content";
 
-export type DocumentTreeSortMode = "name" | "path" | "modified";
+export type DocumentTreeSortMode = "name" | "path" | "modified" | "size";
 
 export const DOCUMENT_TREE_SEARCH_QUERY_STORAGE_KEY = "markmini.documentTree.searchQuery";
 export const DOCUMENT_TREE_SORT_MODE_STORAGE_KEY = "markmini.documentTree.sortMode";
@@ -242,6 +242,7 @@ export function FileTree({
             <option value="name">이름순</option>
             <option value="path">경로순</option>
             <option value="modified">수정일순</option>
+            <option value="size">크기순</option>
           </select>
         </div>
         {scanState === "scanning" || skippedCount > 0 ? (
@@ -624,7 +625,7 @@ export function writeStoredSortMode(rootDir: string | null, sortMode: DocumentTr
 }
 
 export function parseSortMode(value: unknown): DocumentTreeSortMode {
-  return value === "path" || value === "modified" ? value : "name";
+  return value === "path" || value === "modified" || value === "size" ? value : "name";
 }
 
 export function buildTree(
@@ -693,6 +694,13 @@ function sortTree(
         }
       }
 
+      if (sortMode === "size") {
+        const sizeComparison = sizeBytes(right, fileMetadata) - sizeBytes(left, fileMetadata);
+        if (sizeComparison !== 0) {
+          return sizeComparison;
+        }
+      }
+
       const leftValue = sortMode === "path" ? left.path : left.name;
       const rightValue = sortMode === "path" ? right.path : right.name;
       return leftValue.localeCompare(rightValue);
@@ -705,6 +713,14 @@ function modifiedAt(node: TreeNodeData, fileMetadata: Record<string, MarkdownFil
   }
 
   return Math.max(0, ...node.children.map((child) => modifiedAt(child, fileMetadata)));
+}
+
+function sizeBytes(node: TreeNodeData, fileMetadata: Record<string, MarkdownFileMetadata>): number {
+  if (node.kind === "file") {
+    return fileMetadata[node.path]?.sizeBytes ?? 0;
+  }
+
+  return Math.max(0, ...node.children.map((child) => sizeBytes(child, fileMetadata)));
 }
 
 export function formatModifiedAt(modifiedAt: number | null | undefined, now = Date.now()): string | null {
