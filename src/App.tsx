@@ -1,5 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { getCurrentWindow } from "@tauri-apps/api/window";
+import { useEffect, useMemo, useState } from "react";
 import { Edit3, Eye, FilePenLine, FilePlus2, FileText, FolderTree, Menu, RefreshCcw, Save, TextSearch, Trash2 } from "lucide-react";
 
 import { FileTree } from "@/components/file-tree";
@@ -9,15 +8,9 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
+import { useUnsavedChangeGuard } from "@/hooks/use-unsaved-change-guard";
 import { useAppStore } from "@/store/app-store";
 import { subscribeToFsChanges, subscribeToScanProgress } from "@/store/fs-watcher";
-
-type PendingUnsavedAction = {
-  title: string;
-  description: string;
-  confirmLabel: string;
-  run: () => Promise<void> | void;
-};
 
 function App() {
   const bootstrap = useAppStore((state) => state.bootstrap);
@@ -51,14 +44,15 @@ function App() {
   const [isDeleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [createPath, setCreatePath] = useState("untitled.md");
   const [renamePath, setRenamePath] = useState("");
-  const [pendingUnsavedAction, setPendingUnsavedAction] = useState<PendingUnsavedAction | null>(null);
-  const allowWindowCloseRef = useRef(false);
-
-  const canSaveDocument =
-    document.state === "ready" &&
-    document.isDirty &&
-    !document.isSaving &&
-    !document.externalChangeDetected;
+  const {
+    canSaveDocument,
+    pendingUnsavedAction,
+    requestUnsavedConfirmation,
+    runGuardedAction,
+    clearPendingUnsavedAction,
+    confirmPendingUnsavedAction,
+    saveAndContinuePendingAction,
+  } = useUnsavedChangeGuard();
 
   useEffect(() => {
     void bootstrap();
@@ -110,63 +104,6 @@ function App() {
     return () => window.clearTimeout(timer);
   }, [successMessage, successMessageId, clearSuccessMessage]);
 
-  useEffect(() => {
-    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
-      if (!document.isDirty || allowWindowCloseRef.current) {
-        return;
-      }
-
-      event.preventDefault();
-      event.returnValue = "";
-    };
-
-    window.addEventListener("beforeunload", handleBeforeUnload);
-    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
-  }, [document.isDirty]);
-
-  useEffect(() => {
-    let isDisposed = false;
-    let cleanup: (() => void) | undefined;
-
-    const setupCloseGuard = async () => {
-      try {
-        const appWindow = getCurrentWindow();
-        const unlisten = await appWindow.onCloseRequested(async (event) => {
-          if (allowWindowCloseRef.current || !document.isDirty) {
-            return;
-          }
-
-          event.preventDefault();
-          setPendingUnsavedAction({
-            title: "저장하지 않은 변경사항이 있습니다",
-            description: "이 창을 닫으면 현재 문서의 저장되지 않은 편집 내용이 사라집니다. 저장 후 닫거나, 변경사항을 버리고 닫을 수 있습니다.",
-            confirmLabel: "변경사항 버리고 닫기",
-            run: async () => {
-              allowWindowCloseRef.current = true;
-              await appWindow.close();
-            },
-          });
-        });
-
-        if (isDisposed) {
-          unlisten();
-          return;
-        }
-
-        cleanup = unlisten;
-      } catch {
-        // non-tauri surface
-      }
-    };
-
-    void setupCloseGuard();
-
-    return () => {
-      isDisposed = true;
-      cleanup?.();
-    };
-  }, [document.isDirty]);
-
   const selectedSegments = selectedFile?.split("/") ?? [];
   const selectedLabel = selectedSegments[selectedSegments.length - 1] ?? "문서를 선택하세요";
   const deleteDescription = useMemo(() => {
@@ -175,15 +112,6 @@ function App() {
     }
     return `"${selectedFile}" 문서를 삭제합니다. 삭제 후에는 복구되지 않습니다.`;
   }, [selectedFile]);
-
-  const runGuardedAction = (action: PendingUnsavedAction) => {
-    if (document.isDirty) {
-      setPendingUnsavedAction(action);
-      return;
-    }
-
-    void action.run();
-  };
 
   const handleOpenDocument = (file: string) => {
     if (file === selectedFile) {
@@ -235,7 +163,7 @@ function App() {
 
     if (document.isDirty) {
       setCreateDialogOpen(false);
-      setPendingUnsavedAction({
+      requestUnsavedConfirmation({
         title: "새 문서를 만들기 전에 확인해주세요",
         description: "현재 문서의 저장되지 않은 편집 내용이 있습니다. 계속하면 지금 편집본은 사라지고, 새 문서를 만들어 바로 엽니다.",
         confirmLabel: "변경사항 버리고 생성",
@@ -260,7 +188,7 @@ function App() {
 
     if (document.isDirty) {
       setRenameDialogOpen(false);
-      setPendingUnsavedAction({
+      requestUnsavedConfirmation({
         title: "이름 변경 전에 확인해주세요",
         description: "저장하지 않은 편집 내용이 있습니다. 계속하면 현재 편집본은 사라지고, 마지막으로 저장된 파일 기준으로 이름을 변경합니다.",
         confirmLabel: "변경사항 버리고 변경",
@@ -280,7 +208,7 @@ function App() {
 
     if (document.isDirty) {
       setDeleteDialogOpen(false);
-      setPendingUnsavedAction({
+      requestUnsavedConfirmation({
         title: "삭제 전에 확인해주세요",
         description: "현재 문서의 저장되지 않은 편집 내용이 있습니다. 저장 후 삭제하거나, 변경사항을 버리고 선택한 문서를 삭제할 수 있습니다.",
         confirmLabel: "변경사항 버리고 삭제",
@@ -290,33 +218,6 @@ function App() {
     }
 
     await execute();
-  };
-
-  const handleConfirmPendingUnsavedAction = async () => {
-    if (!pendingUnsavedAction) {
-      return;
-    }
-
-    const action = pendingUnsavedAction;
-    setPendingUnsavedAction(null);
-    await action.run();
-  };
-
-  const handleSaveAndContinuePendingAction = async () => {
-    if (!pendingUnsavedAction) {
-      return;
-    }
-
-    await saveCurrentDocument();
-
-    const latestDocument = useAppStore.getState().document;
-    if (latestDocument.isDirty || latestDocument.error) {
-      return;
-    }
-
-    const action = pendingUnsavedAction;
-    setPendingUnsavedAction(null);
-    await action.run();
   };
 
   return (
@@ -540,7 +441,7 @@ function App() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={pendingUnsavedAction !== null} onOpenChange={(open) => !open && setPendingUnsavedAction(null)}>
+      <Dialog open={pendingUnsavedAction !== null} onOpenChange={(open) => !open && clearPendingUnsavedAction()}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>{pendingUnsavedAction?.title ?? "저장되지 않은 변경사항"}</DialogTitle>
@@ -549,13 +450,13 @@ function App() {
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setPendingUnsavedAction(null)}>
+            <Button variant="outline" onClick={clearPendingUnsavedAction}>
               취소
             </Button>
-            <Button variant="outline" disabled={!canSaveDocument} onClick={() => void handleSaveAndContinuePendingAction()}>
+            <Button variant="outline" disabled={!canSaveDocument} onClick={() => void saveAndContinuePendingAction()}>
               {document.isSaving ? "저장 중" : "저장 후 계속"}
             </Button>
-            <Button onClick={() => void handleConfirmPendingUnsavedAction()}>
+            <Button onClick={() => void confirmPendingUnsavedAction()}>
               {pendingUnsavedAction?.confirmLabel ?? "계속"}
             </Button>
           </DialogFooter>
