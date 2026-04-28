@@ -992,3 +992,118 @@ fn slugify(value: &str) -> String {
 
     slug.trim_matches('-').to_string()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::{
+        fs,
+        time::{SystemTime, UNIX_EPOCH},
+    };
+
+    struct TestDir {
+        path: PathBuf,
+    }
+
+    impl TestDir {
+        fn new() -> Self {
+            let unique = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("system clock should be after Unix epoch")
+                .as_nanos();
+            let path = env::temp_dir().join(format!("markmini-test-{}-{}", std::process::id(), unique));
+            fs::create_dir_all(&path).expect("test directory should be created");
+            Self { path }
+        }
+    }
+
+    impl Drop for TestDir {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.path);
+        }
+    }
+
+    #[test]
+    fn collect_markdown_files_skips_non_markdown_and_skipped_directories() {
+        let temp = TestDir::new();
+        fs::write(temp.path.join("README.md"), "# Readme\n").expect("markdown file should be written");
+        fs::write(temp.path.join("notes.txt"), "not markdown\n").expect("text file should be written");
+        fs::create_dir_all(temp.path.join("node_modules/pkg")).expect("skipped dir should be created");
+        fs::write(temp.path.join("node_modules/pkg/hidden.md"), "# Hidden\n")
+            .expect("hidden markdown should be written");
+
+        let mut files = collect_markdown_files(&temp.path, &temp.path).expect("scan should succeed");
+        files.sort();
+
+        assert_eq!(files, vec!["README.md"]);
+    }
+
+    #[test]
+    fn visit_dir_streaming_reports_skipped_directories() {
+        let temp = TestDir::new();
+        fs::write(temp.path.join("visible.md"), "# Visible\n").expect("markdown file should be written");
+        fs::create_dir_all(temp.path.join(".git/hooks")).expect("skipped dir should be created");
+        fs::write(temp.path.join(".git/hooks/hidden.md"), "# Hidden\n").expect("hidden markdown should be written");
+
+        let mut files = Vec::new();
+        let mut skipped = Vec::new();
+        visit_dir_streaming(&temp.path, &temp.path, &mut |entry| match entry {
+            ScanEntry::File(path) => files.push(path),
+            ScanEntry::Skipped(path) => skipped.push(path),
+        })
+        .expect("streaming scan should succeed");
+
+        files.sort();
+        skipped.sort();
+
+        assert_eq!(files, vec!["visible.md"]);
+        assert_eq!(skipped, vec![".git"]);
+    }
+
+    #[test]
+    fn pick_default_document_prefers_readme_then_first_file() {
+        assert_eq!(
+            pick_default_document(&["notes/a.md".to_string(), "README.md".to_string()]),
+            Some("README.md".to_string())
+        );
+        assert_eq!(
+            pick_default_document(&["notes/a.md".to_string(), "notes/b.md".to_string()]),
+            Some("notes/a.md".to_string())
+        );
+        assert_eq!(pick_default_document(&[]), None);
+    }
+
+    #[test]
+    fn extract_headings_strips_inline_markdown_and_deduplicates_slugs() {
+        let headings = extract_headings("# **Intro**\n## `Intro`\n#### Ignored\n### 한국어 제목!\n");
+
+        assert_eq!(headings.len(), 3);
+        assert_eq!(headings[0].depth, 1);
+        assert_eq!(headings[0].text, "Intro");
+        assert_eq!(headings[0].id, "intro");
+        assert_eq!(headings[1].depth, 2);
+        assert_eq!(headings[1].text, "Intro");
+        assert_eq!(headings[1].id, "intro-1");
+        assert_eq!(headings[2].depth, 3);
+        assert_eq!(headings[2].text, "한국어 제목!");
+        assert_eq!(headings[2].id, "한국어-제목");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn collect_markdown_files_filters_symlinks_outside_root() {
+        use std::os::unix::fs::symlink;
+
+        let temp = TestDir::new();
+        let external = TestDir::new();
+        fs::write(external.path.join("outside.md"), "# Outside\n").expect("external markdown should be written");
+        symlink(external.path.join("outside.md"), temp.path.join("outside.md"))
+            .expect("symlink should be created");
+        fs::write(temp.path.join("inside.md"), "# Inside\n").expect("inside markdown should be written");
+
+        let mut files = collect_markdown_files(&temp.path, &temp.path).expect("scan should succeed");
+        files.sort();
+
+        assert_eq!(files, vec!["inside.md"]);
+    }
+}
