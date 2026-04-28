@@ -75,7 +75,7 @@ export function TableOfContents({ headings }: TableOfContentsProps) {
 
   if (headings.length === 0) {
     return (
-      <Card>
+      <Card className="bg-card/95 shadow-lg backdrop-blur supports-[backdrop-filter]:bg-card/85">
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-lg">
             <ListTree className="h-4 w-4" />
@@ -88,7 +88,7 @@ export function TableOfContents({ headings }: TableOfContentsProps) {
   }
 
   return (
-    <Card>
+    <Card className="bg-card/95 shadow-lg backdrop-blur supports-[backdrop-filter]:bg-card/85">
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-lg">
           <ListTree className="h-4 w-4" />
@@ -96,7 +96,7 @@ export function TableOfContents({ headings }: TableOfContentsProps) {
         </CardTitle>
       </CardHeader>
       <CardContent className="pt-0">
-        <ScrollArea className="h-[min(60vh,calc(100vh-14rem))] pr-3" viewportRef={scrollViewportRef}>
+        <ScrollArea className="h-[min(62vh,calc(100vh-15rem))] pr-3" viewportRef={scrollViewportRef}>
           <div>
             <nav aria-label="Table of contents">
               <ol className="space-y-1">

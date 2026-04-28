@@ -117,7 +117,7 @@ function App() {
               </div>
             </aside>
 
-            <section className="grid min-h-0 min-w-0 gap-4 xl:grid-cols-[minmax(0,1fr)_280px]">
+            <section className="relative min-h-0 min-w-0 xl:pr-[296px]">
               <Card className="min-h-[70vh] min-w-0 overflow-hidden">
                 <CardContent className="flex h-full flex-col p-0">
                   <div className="border-b border-border/60 px-5 py-4">
@@ -149,8 +149,8 @@ function App() {
                 </CardContent>
               </Card>
 
-              <aside className="min-h-0">
-                <div className="sticky top-4">
+              <aside className="hidden xl:block">
+                <div className="fixed right-[max(1.5rem,calc((100vw-1600px)/2+1.5rem))] top-28 z-20 w-[280px]">
                   {scanError ? (
                     <div className="mb-4 rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
                       {scanError}
