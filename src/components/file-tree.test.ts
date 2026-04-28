@@ -4,6 +4,7 @@ import {
   DOCUMENT_TREE_SEARCH_QUERY_STORAGE_KEY,
   DOCUMENT_TREE_SORT_MODE_STORAGE_KEY,
   buildTree,
+  documentTreeSortModeStorageKey,
   filterFiles,
   flattenVisibleTree,
   formatModifiedAt,
@@ -198,13 +199,16 @@ describe("document tree sorting", () => {
     expect(parseSortMode(null)).toBe("name");
   });
 
-  it("stores and restores the selected sort mode in session storage", () => {
-    const sessionStorage = installSessionStorageMock();
+  it("stores and restores the selected sort mode per root", () => {
+    const localStorage = installLocalStorageMock();
 
-    writeStoredSortMode("path");
+    writeStoredSortMode("/vault-a", "path");
+    writeStoredSortMode("/vault-b", "modified");
 
-    expect(sessionStorage.getItem(DOCUMENT_TREE_SORT_MODE_STORAGE_KEY)).toBe("path");
-    expect(readStoredSortMode()).toBe("path");
+    expect(localStorage.getItem(documentTreeSortModeStorageKey("/vault-a"))).toBe("path");
+    expect(localStorage.getItem(`${DOCUMENT_TREE_SORT_MODE_STORAGE_KEY}:/vault-b`)).toBe("modified");
+    expect(readStoredSortMode("/vault-a")).toBe("path");
+    expect(readStoredSortMode("/vault-b")).toBe("modified");
   });
 
   it("sorts files and directories by newest modified time when metadata is available", () => {
@@ -235,3 +239,18 @@ describe("modified time labels", () => {
     expect(formatModifiedAt(now - 2 * 24 * 60 * 60_000, now)).toBe("2일 전");
   });
 });
+
+function installLocalStorageMock() {
+  const values = new Map<string, string>();
+  const localStorage = {
+    getItem: (key: string) => values.get(key) ?? null,
+    setItem: (key: string, value: string) => values.set(key, value),
+  };
+
+  Object.defineProperty(globalThis, "window", {
+    value: { localStorage },
+    configurable: true,
+  });
+
+  return localStorage;
+}

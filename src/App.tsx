@@ -82,6 +82,7 @@ function App() {
                   </SheetHeader>
                   <div className="h-[calc(100vh-72px)] overflow-hidden">
                     <FileTree
+                      rootDir={rootDir}
                       files={files}
                       fileMetadata={fileMetadata}
                       recentDocuments={recentDocuments}
@@ -116,6 +117,7 @@ function App() {
             <aside className="hidden min-h-0 lg:block">
               <div className="sticky top-4 h-[calc(100vh-8rem)]">
                 <FileTree
+                  rootDir={rootDir}
                   files={files}
                   fileMetadata={fileMetadata}
                   recentDocuments={recentDocuments}
