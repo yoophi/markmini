@@ -20,6 +20,7 @@ function App() {
   const files = useAppStore((state) => state.files);
   const recentDocuments = useAppStore((state) => state.recentDocuments);
   const favoriteDocuments = useAppStore((state) => state.favoriteDocuments);
+  const fileMetadata = useAppStore((state) => state.fileMetadata);
   const scanState = useAppStore((state) => state.scanState);
   const scanSkippedPaths = useAppStore((state) => state.scanSkippedPaths);
   const scanError = useAppStore((state) => state.scanError);
@@ -84,6 +85,7 @@ function App() {
                       files={files}
                       recentDocuments={recentDocuments}
                       favoriteDocuments={favoriteDocuments}
+                      fileMetadata={fileMetadata}
                       scanState={scanState}
                       skippedCount={scanSkippedPaths.length}
                       selectedFile={selectedFile}
@@ -117,6 +119,7 @@ function App() {
                   files={files}
                   recentDocuments={recentDocuments}
                   favoriteDocuments={favoriteDocuments}
+                  fileMetadata={fileMetadata}
                   scanState={scanState}
                   skippedCount={scanSkippedPaths.length}
                   selectedFile={selectedFile}

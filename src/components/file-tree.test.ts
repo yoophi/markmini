@@ -193,7 +193,7 @@ describe("file tree structure", () => {
 describe("document tree sorting", () => {
   it("parses unknown sort modes as name sort", () => {
     expect(parseSortMode("path")).toBe("path");
-    expect(parseSortMode("modified")).toBe("name");
+    expect(parseSortMode("modified")).toBe("modified");
     expect(parseSortMode(null)).toBe("name");
   });
 
@@ -204,5 +204,21 @@ describe("document tree sorting", () => {
 
     expect(sessionStorage.getItem(DOCUMENT_TREE_SORT_MODE_STORAGE_KEY)).toBe("path");
     expect(readStoredSortMode()).toBe("path");
+  });
+
+  it("sorts files and directories by newest modified time when metadata is available", () => {
+    const tree = buildTree(
+      ["old.md", "docs/older.md", "docs/newer.md", "notes/latest.md"],
+      "modified",
+      {
+        "old.md": { relativePath: "old.md", modifiedAt: 10 },
+        "docs/older.md": { relativePath: "docs/older.md", modifiedAt: 20 },
+        "docs/newer.md": { relativePath: "docs/newer.md", modifiedAt: 30 },
+        "notes/latest.md": { relativePath: "notes/latest.md", modifiedAt: 40 },
+      },
+    );
+
+    expect(tree.map((node) => node.path)).toEqual(["notes", "docs", "old.md"]);
+    expect(tree[1]?.children.map((node) => node.path)).toEqual(["docs/newer.md", "docs/older.md"]);
   });
 });
