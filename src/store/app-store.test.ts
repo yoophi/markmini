@@ -46,6 +46,7 @@ function resetStore() {
     isSidebarOpen: false,
     documentSearchQuery: "",
     documentSortMode: "path",
+    documentSortDirection: "asc",
     successMessage: null,
     successMessageId: 0,
     document: {
@@ -76,10 +77,13 @@ describe("app store document safety flows", () => {
 
     useAppStore.getState().setDocumentSearchQuery("guide");
     useAppStore.getState().setDocumentSortMode("name");
+    useAppStore.getState().setDocumentSortDirection("desc");
 
     expect(useAppStore.getState().documentSearchQuery).toBe("guide");
     expect(useAppStore.getState().documentSortMode).toBe("name");
+    expect(useAppStore.getState().documentSortDirection).toBe("desc");
     expect(localStorage.getItem("markmini:document-sort-mode:/vault")).toBe("name");
+    expect(localStorage.getItem("markmini:document-sort-direction:/vault")).toBe("desc");
   });
 
   it("toggles favorite documents and persists only relative paths", () => {
@@ -145,6 +149,23 @@ describe("app store document safety flows", () => {
     await useAppStore.getState().bootstrap();
 
     expect(useAppStore.getState().documentSortMode).toBe("size");
+    expect(useAppStore.getState().documentSortDirection).toBe("desc");
+  });
+
+  it("restores persisted sort direction", async () => {
+    localStorage.setItem("markmini:document-sort-mode:/vault", "name");
+    localStorage.setItem("markmini:document-sort-direction:/vault", "desc");
+    vi.mocked(getInitialSession).mockResolvedValue({
+      rootDir: "/vault",
+      files: [],
+      fileMetadata: [],
+      selectedFile: null,
+    });
+
+    await useAppStore.getState().bootstrap();
+
+    expect(useAppStore.getState().documentSortMode).toBe("name");
+    expect(useAppStore.getState().documentSortDirection).toBe("desc");
   });
 
   it("falls back to path sort when persisted sort mode is invalid", async () => {

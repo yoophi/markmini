@@ -15,6 +15,7 @@ afterEach(() => {
 function renderFileTree(options: Partial<React.ComponentProps<typeof FileTree>> = {}) {
   function ControlledFileTree() {
     const [searchQuery, setSearchQuery] = useState(options.searchQuery ?? "");
+    const defaultSortDirection = options.sortMode === "modified" || options.sortMode === "size" ? "desc" : "asc";
 
     return (
       <FileTree
@@ -26,6 +27,7 @@ function renderFileTree(options: Partial<React.ComponentProps<typeof FileTree>> 
         favoriteDocuments={[]}
         recentDocuments={[]}
         sortMode="path"
+        sortDirection={defaultSortDirection}
         onSelect={vi.fn()}
         {...options}
         searchQuery={searchQuery}
@@ -34,6 +36,7 @@ function renderFileTree(options: Partial<React.ComponentProps<typeof FileTree>> 
           options.onSearchQueryChange?.(query);
         }}
         onSortModeChange={vi.fn()}
+        onSortDirectionChange={vi.fn()}
       />
     );
   }
@@ -118,6 +121,7 @@ describe("FileTree search", () => {
   it("changes document tree ordering with the sort control", () => {
     function SortableFileTree() {
       const [sortMode, setSortMode] = useState<React.ComponentProps<typeof FileTree>["sortMode"]>("path");
+      const [sortDirection, setSortDirection] = useState<React.ComponentProps<typeof FileTree>["sortDirection"]>("asc");
       return (
         <FileTree
           files={["docs/guide.md", "alpha.md"]}
@@ -129,8 +133,10 @@ describe("FileTree search", () => {
           recentDocuments={["alpha.md"]}
           searchQuery=""
           sortMode={sortMode}
+          sortDirection={sortDirection}
           onSearchQueryChange={vi.fn()}
           onSortModeChange={setSortMode}
+          onSortDirectionChange={setSortDirection}
           onSelect={vi.fn()}
         />
       );
@@ -155,12 +161,30 @@ describe("FileTree search", () => {
         "large.md": { relativePath: "large.md", modifiedAt: 100, sizeBytes: 2000 },
       },
       sortMode: "size",
+      sortDirection: "desc",
     });
 
     const treeItems = within(screen.getByRole("tree")).getAllByRole("treeitem");
     expect(treeItems[0].textContent).toContain("large");
     expect(treeItems[1].textContent).toContain("small");
     expect(treeItems[2].textContent).toContain("missing");
+  });
+
+  it("reverses file size sorting when sort direction is ascending", () => {
+    renderFileTree({
+      files: ["small.md", "large.md", "missing.md"],
+      fileMetadata: {
+        "small.md": { relativePath: "small.md", modifiedAt: 100, sizeBytes: 10 },
+        "large.md": { relativePath: "large.md", modifiedAt: 100, sizeBytes: 2000 },
+      },
+      sortMode: "size",
+      sortDirection: "asc",
+    });
+
+    const treeItems = within(screen.getByRole("tree")).getAllByRole("treeitem");
+    expect(treeItems[0].textContent).toContain("missing");
+    expect(treeItems[1].textContent).toContain("small");
+    expect(treeItems[2].textContent).toContain("large");
   });
 
   it("sorts documents by modified time when metadata is available", () => {

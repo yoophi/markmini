@@ -8,6 +8,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import type { MarkdownFileMetadata, ScanStatus } from "@/types/content";
 
 type DocumentSortMode = "path" | "name" | "modified" | "size";
+type DocumentSortDirection = "asc" | "desc";
 
 interface FileTreeProps {
   files: string[];
@@ -19,8 +20,10 @@ interface FileTreeProps {
   recentDocuments: string[];
   searchQuery: string;
   sortMode: DocumentSortMode;
+  sortDirection: DocumentSortDirection;
   onSearchQueryChange: (query: string) => void;
   onSortModeChange: (mode: DocumentSortMode) => void;
+  onSortDirectionChange: (direction: DocumentSortDirection) => void;
   onSelect: (relativePath: string) => void;
 }
 
@@ -34,16 +37,18 @@ export function FileTree({
   recentDocuments,
   searchQuery,
   sortMode,
+  sortDirection,
   onSearchQueryChange,
   onSortModeChange,
+  onSortDirectionChange,
   onSelect,
 }: FileTreeProps) {
   const normalizedSearchQuery = searchQuery.trim().toLocaleLowerCase();
   const filteredFiles = useMemo(
-    () => sortFiles(filterFiles(files, normalizedSearchQuery), sortMode, fileMetadata),
-    [fileMetadata, files, normalizedSearchQuery, sortMode],
+    () => sortFiles(filterFiles(files, normalizedSearchQuery), sortMode, sortDirection, fileMetadata),
+    [fileMetadata, files, normalizedSearchQuery, sortDirection, sortMode],
   );
-  const tree = useMemo(() => buildTree(filteredFiles, sortMode), [filteredFiles, sortMode]);
+  const tree = useMemo(() => buildTree(filteredFiles, sortMode, sortDirection), [filteredFiles, sortDirection, sortMode]);
   const visibleFavoriteDocuments = useMemo(() => favoriteDocuments.filter((file) => files.includes(file)), [favoriteDocuments, files]);
   const visibleRecentDocuments = useMemo(() => recentDocuments.filter((file) => files.includes(file)), [files, recentDocuments]);
   const directoryPaths = useMemo(() => collectDirectoryPaths(tree), [tree]);
@@ -241,17 +246,28 @@ export function FileTree({
           <label htmlFor="document-sort-mode" className="font-medium">
             정렬
           </label>
-          <select
-            id="document-sort-mode"
-            value={sortMode}
-            onChange={(event) => onSortModeChange(event.target.value as DocumentSortMode)}
-            className="h-8 rounded-md border border-border bg-background px-2 text-xs text-foreground outline-none transition focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            <option value="path">경로순</option>
-            <option value="name">이름순</option>
-            <option value="modified">수정시간순</option>
-            <option value="size">크기순</option>
-          </select>
+          <div className="flex items-center gap-1">
+            <select
+              id="document-sort-mode"
+              value={sortMode}
+              onChange={(event) => onSortModeChange(event.target.value as DocumentSortMode)}
+              className="h-8 rounded-md border border-border bg-background px-2 text-xs text-foreground outline-none transition focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <option value="path">경로순</option>
+              <option value="name">이름순</option>
+              <option value="modified">수정시간순</option>
+              <option value="size">크기순</option>
+            </select>
+            <select
+              aria-label="정렬 방향"
+              value={sortDirection}
+              onChange={(event) => onSortDirectionChange(event.target.value as DocumentSortDirection)}
+              className="h-8 rounded-md border border-border bg-background px-2 text-xs text-foreground outline-none transition focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <option value="asc">오름차순</option>
+              <option value="desc">내림차순</option>
+            </select>
+          </div>
         </div>
         {scanState === "scanning" || skippedCount > 0 ? (
           <div className="mt-2 flex items-center justify-between gap-3 text-xs text-muted-foreground">
@@ -590,41 +606,52 @@ function filterFiles(files: string[], normalizedSearchQuery: string) {
   });
 }
 
-function sortFiles(files: string[], sortMode: DocumentSortMode, fileMetadata: Record<string, MarkdownFileMetadata>) {
+function sortFiles(
+  files: string[],
+  sortMode: DocumentSortMode,
+  sortDirection: DocumentSortDirection,
+  fileMetadata: Record<string, MarkdownFileMetadata>,
+) {
   return [...files].sort((left, right) => {
+    let comparison = 0;
+
     if (sortMode === "modified") {
       const leftModified = fileMetadata[left]?.modifiedAt ?? 0;
       const rightModified = fileMetadata[right]?.modifiedAt ?? 0;
       if (leftModified !== rightModified) {
-        return rightModified - leftModified;
+        comparison = leftModified - rightModified;
       }
     }
     if (sortMode === "size") {
       const leftSize = fileMetadata[left]?.sizeBytes ?? 0;
       const rightSize = fileMetadata[right]?.sizeBytes ?? 0;
       if (leftSize !== rightSize) {
-        return rightSize - leftSize;
+        comparison = leftSize - rightSize;
       }
     }
     if (sortMode === "name") {
       const labelComparison = fileLabel(left).localeCompare(fileLabel(right));
       if (labelComparison !== 0) {
-        return labelComparison;
+        comparison = labelComparison;
       }
     }
 
-    return left.localeCompare(right);
+    if (comparison === 0) {
+      comparison = left.localeCompare(right);
+    }
+
+    return sortDirection === "desc" ? -comparison : comparison;
   });
 }
 
-function buildTree(files: string[], sortMode: DocumentSortMode) {
+function buildTree(files: string[], sortMode: DocumentSortMode, sortDirection: DocumentSortDirection) {
   const root: TreeNodeData[] = [];
 
   for (const file of files) {
     insertNode(root, file.split("/"), "", file);
   }
 
-  return sortTree(root, sortMode);
+  return sortTree(root, sortMode, sortDirection);
 }
 
 function insertNode(nodes: TreeNodeData[], segments: string[], parentPath: string, originalPath: string) {
@@ -657,10 +684,10 @@ function insertNode(nodes: TreeNodeData[], segments: string[], parentPath: strin
   }
 }
 
-function sortTree(nodes: TreeNodeData[], sortMode: DocumentSortMode): TreeNodeData[] {
+function sortTree(nodes: TreeNodeData[], sortMode: DocumentSortMode, sortDirection: DocumentSortDirection): TreeNodeData[] {
   const mappedNodes = nodes.map((node) => ({
     ...node,
-    children: sortTree(node.children, sortMode),
+    children: sortTree(node.children, sortMode, sortDirection),
   }));
 
   if (sortMode === "modified" || sortMode === "size") {
@@ -668,15 +695,20 @@ function sortTree(nodes: TreeNodeData[], sortMode: DocumentSortMode): TreeNodeDa
   }
 
   return mappedNodes.sort((left, right) => {
+    let comparison = 0;
+
     if (sortMode === "path" && left.kind !== right.kind) {
-      return left.kind === "directory" ? -1 : 1;
+      comparison = left.kind === "directory" ? -1 : 1;
     }
 
-    const labelComparison = left.name.localeCompare(right.name);
-    if (labelComparison !== 0) {
-      return labelComparison;
+    if (comparison === 0) {
+      comparison = left.name.localeCompare(right.name);
     }
 
-    return left.path.localeCompare(right.path);
+    if (comparison === 0) {
+      comparison = left.path.localeCompare(right.path);
+    }
+
+    return sortDirection === "desc" ? -comparison : comparison;
   });
 }
