@@ -1,6 +1,15 @@
 import { describe, expect, it } from "vitest";
 
-import { buildTree, filterFiles, flattenVisibleTree, treeNodeIndent } from "./file-tree";
+import {
+  DOCUMENT_TREE_SORT_MODE_STORAGE_KEY,
+  buildTree,
+  filterFiles,
+  flattenVisibleTree,
+  parseSortMode,
+  readStoredSortMode,
+  treeNodeIndent,
+  writeStoredSortMode,
+} from "./file-tree";
 
 const files = ["docs/guide.md", "notes/today.md", "projects/markmini/plan.md"];
 
@@ -114,3 +123,35 @@ describe("file tree structure", () => {
     expect([0, 1, 2, 3].map(treeNodeIndent)).toEqual(["8px", "28px", "48px", "68px"]);
   });
 });
+
+describe("document tree sorting", () => {
+  it("parses unknown sort modes as name sort", () => {
+    expect(parseSortMode("path")).toBe("path");
+    expect(parseSortMode("modified")).toBe("name");
+    expect(parseSortMode(null)).toBe("name");
+  });
+
+  it("stores and restores the selected sort mode in session storage", () => {
+    const sessionStorage = installSessionStorageMock();
+
+    writeStoredSortMode("path");
+
+    expect(sessionStorage.getItem(DOCUMENT_TREE_SORT_MODE_STORAGE_KEY)).toBe("path");
+    expect(readStoredSortMode()).toBe("path");
+  });
+});
+
+function installSessionStorageMock() {
+  const values = new Map<string, string>();
+  const sessionStorage = {
+    getItem: (key: string) => values.get(key) ?? null,
+    setItem: (key: string, value: string) => values.set(key, value),
+  };
+
+  Object.defineProperty(globalThis, "window", {
+    value: { sessionStorage },
+    configurable: true,
+  });
+
+  return sessionStorage;
+}
