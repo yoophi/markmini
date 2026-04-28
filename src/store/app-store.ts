@@ -93,7 +93,11 @@ export const useAppStore = create<AppStore>((set, get) => ({
   document: createEmptyDocument(),
   setSidebarOpen: (open) => set({ isSidebarOpen: open }),
   setDocumentSearchQuery: (query) => set({ documentSearchQuery: query }),
-  setDocumentSortMode: (mode) => set({ documentSortMode: mode }),
+  setDocumentSortMode: (mode) =>
+    set((state) => {
+      persistDocumentSortMode(state.rootDir, mode);
+      return { documentSortMode: mode };
+    }),
   toggleFavoriteDocument: (relativePath) => {
     set((state) => {
       const favoriteDocuments = state.favoriteDocuments.includes(relativePath)
@@ -151,6 +155,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
       const fileMetadata = fileMetadataByPath(session.fileMetadata);
       const favoriteDocuments = loadFavoriteDocuments(session.rootDir, fileSet);
       const recentDocuments = loadRecentDocuments(session.rootDir, fileSet);
+      const documentSortMode = loadDocumentSortMode(session.rootDir);
       set({
         bootstrapState: "ready",
         rootDir: session.rootDir,
@@ -159,6 +164,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
         fileMetadata,
         favoriteDocuments,
         recentDocuments,
+        documentSortMode,
         selectedFile: session.selectedFile,
       });
 
@@ -597,6 +603,27 @@ function mergeFileMetadata(
     ...current,
     ...fileMetadataByPath(incoming),
   };
+}
+
+function loadDocumentSortMode(rootDir: string): DocumentSortMode {
+  const stored = safeLocalStorageGet(documentSortModeStorageKey(rootDir));
+  return isDocumentSortMode(stored) ? stored : "path";
+}
+
+function persistDocumentSortMode(rootDir: string | null, mode: DocumentSortMode) {
+  if (!rootDir) {
+    return;
+  }
+
+  safeLocalStorageSet(documentSortModeStorageKey(rootDir), mode);
+}
+
+function isDocumentSortMode(value: string | null): value is DocumentSortMode {
+  return value === "path" || value === "name" || value === "modified";
+}
+
+function documentSortModeStorageKey(rootDir: string) {
+  return `markmini:document-sort-mode:${rootDir}`;
 }
 
 function loadFavoriteDocuments(rootDir: string, fileSet: ReadonlySet<string>) {

@@ -70,12 +70,15 @@ describe("app store document safety flows", () => {
     resetStore();
   });
 
-  it("stores document tree controls in window state", () => {
+  it("stores document tree controls in window state and persists sort mode per root", () => {
+    useAppStore.setState({ rootDir: "/vault" });
+
     useAppStore.getState().setDocumentSearchQuery("guide");
     useAppStore.getState().setDocumentSortMode("name");
 
     expect(useAppStore.getState().documentSearchQuery).toBe("guide");
     expect(useAppStore.getState().documentSortMode).toBe("name");
+    expect(localStorage.getItem("markmini:document-sort-mode:/vault")).toBe("name");
   });
 
   it("toggles favorite documents and persists only relative paths", () => {
@@ -100,6 +103,7 @@ describe("app store document safety flows", () => {
   });
 
   it("restores persisted favorite and recent documents for the current root and drops stale entries", async () => {
+    localStorage.setItem("markmini:document-sort-mode:/vault", "modified");
     localStorage.setItem("markmini:favorite-documents:/vault", JSON.stringify(["notes/b.md", "missing.md", "notes/a.md"]));
     localStorage.setItem(
       "markmini:recent-documents:/vault",
@@ -117,6 +121,7 @@ describe("app store document safety flows", () => {
 
     await useAppStore.getState().bootstrap();
 
+    expect(useAppStore.getState().documentSortMode).toBe("modified");
     expect(useAppStore.getState().fileMetadata).toEqual({
       "notes/a.md": { relativePath: "notes/a.md", modifiedAt: 100 },
       "notes/b.md": { relativePath: "notes/b.md", modifiedAt: 200 },
@@ -125,6 +130,20 @@ describe("app store document safety flows", () => {
     expect(useAppStore.getState().recentDocuments).toEqual(["notes/a.md", "notes/b.md"]);
     expect(JSON.parse(localStorage.getItem("markmini:favorite-documents:/vault") ?? "[]")).toEqual(["notes/b.md", "notes/a.md"]);
     expect(JSON.parse(localStorage.getItem("markmini:recent-documents:/vault") ?? "[]")).toEqual(["notes/a.md", "notes/b.md"]);
+  });
+
+  it("falls back to path sort when persisted sort mode is invalid", async () => {
+    localStorage.setItem("markmini:document-sort-mode:/vault", "updated-at");
+    vi.mocked(getInitialSession).mockResolvedValue({
+      rootDir: "/vault",
+      files: [],
+      fileMetadata: [],
+      selectedFile: null,
+    });
+
+    await useAppStore.getState().bootstrap();
+
+    expect(useAppStore.getState().documentSortMode).toBe("path");
   });
 
   it("saves the dirty draft and clears dirty state", async () => {
