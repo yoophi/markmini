@@ -2,9 +2,12 @@ import { create } from "zustand";
 
 import { extractHeadings } from "@/lib/markdown";
 import {
+  createMarkdownFile,
+  deleteMarkdownFile,
   getInitialSession,
   readMarkdownFile,
   refreshSession,
+  renameMarkdownFile,
   writeMarkdownFile,
   type ScanProgressPayload,
 } from "@/lib/tauri";
@@ -27,6 +30,8 @@ interface AppStore {
   selectedFile: string | null;
   documentLoadToken: number;
   isSidebarOpen: boolean;
+  successMessage: string | null;
+  successMessageId: number;
   document: {
     state: DocumentState;
     content: string;
@@ -41,9 +46,13 @@ interface AppStore {
     externalChangeDetected: boolean;
   };
   setSidebarOpen: (open: boolean) => void;
+  clearSuccessMessage: () => void;
   applyScanProgress: (payload: ScanProgressPayload) => Promise<void>;
   bootstrap: () => Promise<void>;
   openDocument: (relativePath: string) => Promise<void>;
+  createDocument: (relativePath: string, content?: string) => Promise<void>;
+  renameCurrentDocument: (toRelativePath: string) => Promise<void>;
+  deleteCurrentDocument: () => Promise<void>;
   setDocumentMode: (mode: DocumentMode) => void;
   updateDraftContent: (content: string) => void;
   saveCurrentDocument: () => Promise<void>;
@@ -65,15 +74,14 @@ export const useAppStore = create<AppStore>((set, get) => ({
   selectedFile: null,
   documentLoadToken: 0,
   isSidebarOpen: false,
+  successMessage: null,
+  successMessageId: 0,
   document: createEmptyDocument(),
   setSidebarOpen: (open) => set({ isSidebarOpen: open }),
+  clearSuccessMessage: () => set({ successMessage: null }),
   applyScanProgress: async (payload) => {
     const state = get();
-    const { values: files, valueSet: fileSet } = mergeSortedUnique(
-      state.files,
-      state.fileSet,
-      payload.files,
-    );
+    const { values: files, valueSet: fileSet } = mergeSortedUnique(state.files, state.fileSet, payload.files);
     const { values: scanSkippedPaths, valueSet: scanSkippedPathSet } = mergeSortedUnique(
       state.scanSkippedPaths,
       state.scanSkippedPathSet,
@@ -134,9 +142,6 @@ export const useAppStore = create<AppStore>((set, get) => ({
   openDocument: async (relativePath) => {
     const requestPath = relativePath;
     const current = get();
-    if (current.document.isDirty && !confirmDiscardUnsavedChanges()) {
-      return;
-    }
 
     const loadToken = current.documentLoadToken + 1;
     set({
@@ -153,6 +158,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
 
       set({
         selectedFile: document.relativePath,
+        successMessage: null,
         document: createReadyDocument(document.content, document.headings),
       });
     } catch (error) {
@@ -162,6 +168,107 @@ export const useAppStore = create<AppStore>((set, get) => ({
 
       set({
         document: createErrorDocument(error instanceof Error ? error.message : "문서를 열지 못했습니다."),
+      });
+    }
+  },
+  createDocument: async (relativePath, content = "") => {
+    const state = get();
+
+    const normalizedPath = normalizeRelativeMarkdownPath(relativePath);
+    if (!normalizedPath) {
+      return;
+    }
+
+    set({
+      error: null,
+      selectedFile: normalizedPath,
+      document: createLoadingDocument(),
+    });
+
+    try {
+      const document = await createMarkdownFile(normalizedPath, content);
+      const { values: files, valueSet: fileSet } = mergeSortedUnique(state.files, state.fileSet, [document.relativePath]);
+      set((state) => ({
+        files,
+        fileSet,
+        selectedFile: document.relativePath,
+        successMessage: `새 문서를 만들었습니다: ${document.relativePath}`,
+        successMessageId: state.successMessageId + 1,
+        document: {
+          ...createReadyDocument(document.content, document.headings),
+          mode: "edit",
+        },
+      }));
+    } catch (error) {
+      set({
+        selectedFile: state.selectedFile,
+        document: createErrorDocument(error instanceof Error ? error.message : "문서를 생성하지 못했습니다."),
+      });
+    }
+  },
+  renameCurrentDocument: async (toRelativePath) => {
+    const state = get();
+    const current = state.selectedFile;
+    if (!current) {
+      return;
+    }
+
+    const normalizedPath = normalizeRelativeMarkdownPath(toRelativePath);
+    if (!normalizedPath) {
+      return;
+    }
+
+    set({ document: createLoadingDocument() });
+
+    try {
+      const result = await renameMarkdownFile(current, normalizedPath);
+      const files = state.files
+        .filter((entry) => entry !== result.oldRelativePath)
+        .concat(result.document.relativePath)
+        .sort((a, b) => a.localeCompare(b));
+      set((state) => ({
+        files,
+        fileSet: new Set(files),
+        selectedFile: result.document.relativePath,
+        successMessage: `문서 이름을 변경했습니다: ${result.document.relativePath}`,
+        successMessageId: state.successMessageId + 1,
+        document: createReadyDocument(result.document.content, result.document.headings),
+      }));
+    } catch (error) {
+      set({
+        selectedFile: current,
+        document: createErrorDocument(error instanceof Error ? error.message : "문서 이름을 변경하지 못했습니다."),
+      });
+    }
+  },
+  deleteCurrentDocument: async () => {
+    const state = get();
+    const current = state.selectedFile;
+    if (!current) {
+      return;
+    }
+
+    set({ document: createLoadingDocument() });
+
+    try {
+      const result = await deleteMarkdownFile(current);
+      const files = state.files.filter((entry) => entry !== result.deletedRelativePath);
+      set((state) => ({
+        files,
+        fileSet: new Set(files),
+        selectedFile: result.nextSelectedFile,
+        successMessage: `문서를 삭제했습니다: ${result.deletedRelativePath}`,
+        successMessageId: state.successMessageId + 1,
+        document: result.nextSelectedFile ? createLoadingDocument() : createEmptyDocument(),
+      }));
+
+      if (result.nextSelectedFile) {
+        await get().openDocument(result.nextSelectedFile);
+      }
+    } catch (error) {
+      set({
+        selectedFile: current,
+        document: createErrorDocument(error instanceof Error ? error.message : "문서를 삭제하지 못했습니다."),
       });
     }
   },
@@ -175,6 +282,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
   },
   updateDraftContent: (content) => {
     set((state) => ({
+      successMessage: null,
       document: {
         ...state.document,
         content,
@@ -209,14 +317,16 @@ export const useAppStore = create<AppStore>((set, get) => ({
 
     try {
       const document = await writeMarkdownFile(current, draftContent);
-      set({
+      set((state) => ({
         selectedFile: document.relativePath,
+        successMessage: `저장했습니다: ${document.relativePath}`,
+        successMessageId: state.successMessageId + 1,
         document: {
           ...createReadyDocument(document.content, document.headings),
           mode: get().document.mode,
           lastSavedAt: new Date().toISOString(),
         },
-      });
+      }));
     } catch (error) {
       set((state) => ({
         document: {
@@ -257,6 +367,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
       }
 
       set((state) => ({
+        successMessage: null,
         selectedFile: document.relativePath,
         document: {
           ...createReadyDocument(document.content, document.headings),
@@ -286,10 +397,6 @@ export const useAppStore = create<AppStore>((set, get) => ({
     const previousSelection = previousState.selectedFile;
     const hadDirtyDocument = previousState.document.isDirty;
 
-    if (hadDirtyDocument && !confirmDiscardUnsavedChanges()) {
-      return;
-    }
-
     try {
       const session = await refreshSession();
       const { values: files, valueSet: fileSet } = mergeSortedUnique([], new Set(), session.files);
@@ -303,6 +410,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
         scanSkippedPaths: [],
         scanSkippedPathSet: new Set(),
         scanError: null,
+        successMessage: null,
       });
 
       if (previousSelection && session.files.includes(previousSelection)) {
@@ -383,8 +491,8 @@ function createErrorDocument(message: string): AppStore["document"] {
   };
 }
 
-function confirmDiscardUnsavedChanges() {
-  return window.confirm("저장하지 않은 변경사항이 있습니다. 변경사항을 버리고 계속할까요?");
+function normalizeRelativeMarkdownPath(relativePath: string) {
+  return relativePath.trim().replace(/^\/+/, "");
 }
 
 function isCurrentDocumentLoad(state: AppStore, requestPath: string, loadToken: number) {
