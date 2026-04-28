@@ -6,6 +6,7 @@ import {
   filterFiles,
   flattenVisibleTree,
   readStoredSearchQuery,
+  shouldShowSearchClearButton,
   treeNodeIndent,
   writeStoredSearchQuery,
 } from "./file-tree";
@@ -69,6 +70,13 @@ describe("document tree search query persistence", () => {
 
     expect(sessionStorage.getItem(DOCUMENT_TREE_SEARCH_QUERY_STORAGE_KEY)).toBeNull();
     expect(readStoredSearchQuery()).toBe("");
+  });
+});
+
+describe("document tree search affordances", () => {
+  it("shows the clear affordance only while there is query text", () => {
+    expect(shouldShowSearchClearButton("")).toBe(false);
+    expect(shouldShowSearchClearButton("guide")).toBe(true);
   });
 });
 
