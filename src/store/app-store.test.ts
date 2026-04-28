@@ -1,7 +1,9 @@
+/** @vitest-environment jsdom */
+
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useAppStore } from "@/store/app-store";
-import { readMarkdownFile, writeMarkdownFile } from "@/lib/tauri";
+import { getInitialSession, readMarkdownFile, writeMarkdownFile } from "@/lib/tauri";
 import type { HeadingItem, MarkdownDocument } from "@/types/content";
 
 vi.mock("@/lib/tauri", () => ({
@@ -61,6 +63,7 @@ function resetStore() {
 describe("app store document safety flows", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    localStorage.clear();
     resetStore();
   });
 
@@ -78,6 +81,23 @@ describe("app store document safety flows", () => {
     }
 
     expect(useAppStore.getState().recentDocuments).toEqual(["c.md", "f.md", "e.md", "d.md", "b.md"]);
+  });
+
+  it("restores persisted recent documents for the current root and drops stale entries", async () => {
+    localStorage.setItem(
+      "markmini:recent-documents:/vault",
+      JSON.stringify(["notes/a.md", "missing.md", "notes/b.md", "notes/a.md"]),
+    );
+    vi.mocked(getInitialSession).mockResolvedValue({
+      rootDir: "/vault",
+      files: ["notes/a.md", "notes/b.md"],
+      selectedFile: null,
+    });
+
+    await useAppStore.getState().bootstrap();
+
+    expect(useAppStore.getState().recentDocuments).toEqual(["notes/a.md", "notes/b.md"]);
+    expect(JSON.parse(localStorage.getItem("markmini:recent-documents:/vault") ?? "[]")).toEqual(["notes/a.md", "notes/b.md"]);
   });
 
   it("saves the dirty draft and clears dirty state", async () => {

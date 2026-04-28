@@ -127,11 +127,13 @@ export const useAppStore = create<AppStore>((set, get) => ({
     try {
       const session = await getInitialSession();
       const { values: files, valueSet: fileSet } = mergeSortedUnique([], new Set(), session.files);
+      const recentDocuments = loadRecentDocuments(session.rootDir, fileSet);
       set({
         bootstrapState: "ready",
         rootDir: session.rootDir,
         files,
         fileSet,
+        recentDocuments,
         selectedFile: session.selectedFile,
       });
 
@@ -162,9 +164,11 @@ export const useAppStore = create<AppStore>((set, get) => ({
         return;
       }
 
+      const recentDocuments = addRecentDocument(get().recentDocuments, document.relativePath);
+      persistRecentDocuments(get().rootDir, recentDocuments);
       set({
         selectedFile: document.relativePath,
-        recentDocuments: addRecentDocument(get().recentDocuments, document.relativePath),
+        recentDocuments,
         successMessage: null,
         document: createReadyDocument(document.content, document.headings),
       });
@@ -195,18 +199,22 @@ export const useAppStore = create<AppStore>((set, get) => ({
     try {
       const document = await createMarkdownFile(normalizedPath, content);
       const { values: files, valueSet: fileSet } = mergeSortedUnique(state.files, state.fileSet, [document.relativePath]);
-      set((state) => ({
-        files,
-        fileSet,
-        selectedFile: document.relativePath,
-        recentDocuments: addRecentDocument(state.recentDocuments, document.relativePath),
-        successMessage: `새 문서를 만들었습니다: ${document.relativePath}`,
-        successMessageId: state.successMessageId + 1,
-        document: {
-          ...createReadyDocument(document.content, document.headings),
-          mode: "edit",
-        },
-      }));
+      set((state) => {
+        const recentDocuments = addRecentDocument(state.recentDocuments, document.relativePath);
+        persistRecentDocuments(state.rootDir, recentDocuments);
+        return {
+          files,
+          fileSet,
+          selectedFile: document.relativePath,
+          recentDocuments,
+          successMessage: `새 문서를 만들었습니다: ${document.relativePath}`,
+          successMessageId: state.successMessageId + 1,
+          document: {
+            ...createReadyDocument(document.content, document.headings),
+            mode: "edit",
+          },
+        };
+      });
     } catch (error) {
       set({
         selectedFile: state.selectedFile,
@@ -234,18 +242,22 @@ export const useAppStore = create<AppStore>((set, get) => ({
         .filter((entry) => entry !== result.oldRelativePath)
         .concat(result.document.relativePath)
         .sort((a, b) => a.localeCompare(b));
-      set((state) => ({
-        files,
-        fileSet: new Set(files),
-        selectedFile: result.document.relativePath,
-        recentDocuments: addRecentDocument(
+      set((state) => {
+        const recentDocuments = addRecentDocument(
           state.recentDocuments.filter((entry) => entry !== result.oldRelativePath),
           result.document.relativePath,
-        ),
-        successMessage: `문서 이름을 변경했습니다: ${result.document.relativePath}`,
-        successMessageId: state.successMessageId + 1,
-        document: createReadyDocument(result.document.content, result.document.headings),
-      }));
+        );
+        persistRecentDocuments(state.rootDir, recentDocuments);
+        return {
+          files,
+          fileSet: new Set(files),
+          selectedFile: result.document.relativePath,
+          recentDocuments,
+          successMessage: `문서 이름을 변경했습니다: ${result.document.relativePath}`,
+          successMessageId: state.successMessageId + 1,
+          document: createReadyDocument(result.document.content, result.document.headings),
+        };
+      });
     } catch (error) {
       set({
         selectedFile: current,
@@ -265,15 +277,19 @@ export const useAppStore = create<AppStore>((set, get) => ({
     try {
       const result = await deleteMarkdownFile(current);
       const files = state.files.filter((entry) => entry !== result.deletedRelativePath);
-      set((state) => ({
-        files,
-        fileSet: new Set(files),
-        selectedFile: result.nextSelectedFile,
-        recentDocuments: state.recentDocuments.filter((entry) => entry !== result.deletedRelativePath),
-        successMessage: `문서를 삭제했습니다: ${result.deletedRelativePath}`,
-        successMessageId: state.successMessageId + 1,
-        document: result.nextSelectedFile ? createLoadingDocument() : createEmptyDocument(),
-      }));
+      set((state) => {
+        const recentDocuments = state.recentDocuments.filter((entry) => entry !== result.deletedRelativePath);
+        persistRecentDocuments(state.rootDir, recentDocuments);
+        return {
+          files,
+          fileSet: new Set(files),
+          selectedFile: result.nextSelectedFile,
+          recentDocuments,
+          successMessage: `문서를 삭제했습니다: ${result.deletedRelativePath}`,
+          successMessageId: state.successMessageId + 1,
+          document: result.nextSelectedFile ? createLoadingDocument() : createEmptyDocument(),
+        };
+      });
 
       if (result.nextSelectedFile) {
         await get().openDocument(result.nextSelectedFile);
@@ -413,12 +429,15 @@ export const useAppStore = create<AppStore>((set, get) => ({
     try {
       const session = await refreshSession();
       const { values: files, valueSet: fileSet } = mergeSortedUnique([], new Set(), session.files);
+      const recentDocuments = previousState.recentDocuments.filter((entry) => fileSet.has(entry));
+      persistRecentDocuments(session.rootDir, recentDocuments);
       set({
         bootstrapState: "ready",
         error: null,
         rootDir: session.rootDir,
         files,
         fileSet,
+        recentDocuments,
         scanState: "completed",
         scanSkippedPaths: [],
         scanSkippedPathSet: new Set(),
@@ -514,6 +533,55 @@ function isCurrentDocumentLoad(state: AppStore, requestPath: string, loadToken: 
 
 function addRecentDocument(recentDocuments: string[], relativePath: string) {
   return [relativePath, ...recentDocuments.filter((entry) => entry !== relativePath)].slice(0, 5);
+}
+
+function loadRecentDocuments(rootDir: string, fileSet: ReadonlySet<string>) {
+  const stored = safeLocalStorageGet(recentDocumentsStorageKey(rootDir));
+  if (!stored) {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(stored);
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+
+    const recentDocuments = parsed.filter((entry): entry is string => typeof entry === "string" && fileSet.has(entry));
+    const deduped = [...new Set(recentDocuments)].slice(0, 5);
+    persistRecentDocuments(rootDir, deduped);
+    return deduped;
+  } catch {
+    return [];
+  }
+}
+
+function persistRecentDocuments(rootDir: string | null, recentDocuments: string[]) {
+  if (!rootDir) {
+    return;
+  }
+
+  safeLocalStorageSet(recentDocumentsStorageKey(rootDir), JSON.stringify(recentDocuments.slice(0, 5)));
+}
+
+function recentDocumentsStorageKey(rootDir: string) {
+  return `markmini:recent-documents:${rootDir}`;
+}
+
+function safeLocalStorageGet(key: string) {
+  try {
+    return globalThis.localStorage?.getItem(key) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function safeLocalStorageSet(key: string, value: string) {
+  try {
+    globalThis.localStorage?.setItem(key, value);
+  } catch {
+    // Storage may be unavailable in restricted environments; recent documents remain session-local.
+  }
 }
 
 function mergeSortedUnique(current: string[], currentSet: ReadonlySet<string>, incoming: string[]) {
