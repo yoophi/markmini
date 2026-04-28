@@ -996,6 +996,7 @@ fn slugify(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use notify::event::{CreateKind, DataChange, RemoveKind, RenameMode};
     use std::{
         fs,
         time::{SystemTime, UNIX_EPOCH},
@@ -1128,5 +1129,50 @@ mod tests {
         files.sort();
 
         assert_eq!(files, vec!["inside.md"]);
+    }
+
+    #[test]
+    fn classify_event_reports_markdown_modifications_without_tree_change() {
+        let temp = TestDir::new();
+        let event = Event::new(EventKind::Modify(ModifyKind::Data(DataChange::Content)))
+            .add_path(temp.path.join("notes/a.md"));
+
+        let payload = classify_event(&event, &temp.path).expect("markdown modify should be reported");
+
+        assert_eq!(payload.changed_paths, vec!["notes/a.md"]);
+        assert!(!payload.tree_changed);
+    }
+
+    #[test]
+    fn classify_event_marks_markdown_create_remove_and_rename_as_tree_changes() {
+        let temp = TestDir::new();
+        let create_event = Event::new(EventKind::Create(CreateKind::File)).add_path(temp.path.join("created.md"));
+        let remove_event = Event::new(EventKind::Remove(RemoveKind::File)).add_path(temp.path.join("removed.md"));
+        let rename_event = Event::new(EventKind::Modify(ModifyKind::Name(RenameMode::Both)))
+            .add_path(temp.path.join("old.md"))
+            .add_path(temp.path.join("new.md"));
+
+        let create_payload = classify_event(&create_event, &temp.path).expect("markdown create should be reported");
+        let remove_payload = classify_event(&remove_event, &temp.path).expect("markdown remove should be reported");
+        let rename_payload = classify_event(&rename_event, &temp.path).expect("markdown rename should be reported");
+
+        assert!(create_payload.tree_changed);
+        assert_eq!(create_payload.changed_paths, vec!["created.md"]);
+        assert!(remove_payload.tree_changed);
+        assert_eq!(remove_payload.changed_paths, vec!["removed.md"]);
+        assert!(rename_payload.tree_changed);
+        assert_eq!(rename_payload.changed_paths, vec!["old.md", "new.md"]);
+    }
+
+    #[test]
+    fn classify_event_ignores_non_markdown_and_skipped_directory_paths() {
+        let temp = TestDir::new();
+        let non_markdown = Event::new(EventKind::Modify(ModifyKind::Data(DataChange::Content)))
+            .add_path(temp.path.join("notes/a.txt"));
+        let skipped_markdown = Event::new(EventKind::Modify(ModifyKind::Data(DataChange::Content)))
+            .add_path(temp.path.join("node_modules/pkg/a.md"));
+
+        assert!(classify_event(&non_markdown, &temp.path).is_none());
+        assert!(classify_event(&skipped_markdown, &temp.path).is_none());
     }
 }
