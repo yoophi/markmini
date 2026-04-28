@@ -1,5 +1,5 @@
 import { type KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, ChevronRight, FileText, Folder, FolderOpen, Search, Star } from "lucide-react";
+import { ChevronDown, ChevronRight, FileText, Folder, FolderOpen, Search, Star, X } from "lucide-react";
 
 import { fileLabel } from "@/lib/path";
 import { cn } from "@/lib/utils";
@@ -18,6 +18,8 @@ interface FileTreeProps {
   onToggleFavorite: (relativePath: string) => void;
 }
 
+export const DOCUMENT_TREE_SEARCH_QUERY_STORAGE_KEY = "markmini.documentTree.searchQuery";
+
 export function FileTree({
   files,
   recentDocuments,
@@ -28,7 +30,7 @@ export function FileTree({
   onSelect,
   onToggleFavorite,
 }: FileTreeProps) {
-  const [searchQuery, setSearchQuery] = useState("");
+  const [searchQuery, setSearchQuery] = useState(readStoredSearchQuery);
   const normalizedSearchQuery = searchQuery.trim().toLocaleLowerCase();
   const filteredFiles = useMemo(() => filterFiles(files, normalizedSearchQuery), [files, normalizedSearchQuery]);
   const tree = useMemo(() => buildTree(filteredFiles), [filteredFiles]);
@@ -38,6 +40,12 @@ export function FileTree({
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(() => new Set());
   const [focusedPath, setFocusedPath] = useState<string | null>(selectedFile);
   const treeRef = useRef<HTMLUListElement | null>(null);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const showSearchClearButton = shouldShowSearchClearButton(searchQuery);
+
+  useEffect(() => {
+    writeStoredSearchQuery(searchQuery);
+  }, [searchQuery]);
 
   useEffect(() => {
     setExpandedPaths((current) => {
@@ -178,13 +186,33 @@ export function FileTree({
         <div className="relative mt-3">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <input
+            ref={searchInputRef}
             type="search"
             value={searchQuery}
             onChange={(event) => setSearchQuery(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Escape" && searchQuery) {
+                event.preventDefault();
+                setSearchQuery("");
+              }
+            }}
             placeholder="문서 검색"
             aria-label="문서 검색"
-            className="h-9 w-full rounded-md border border-border bg-background pl-9 pr-3 text-sm text-foreground outline-none transition placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+            className="h-9 w-full rounded-md border border-border bg-background pl-9 pr-10 text-sm text-foreground outline-none transition placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
           />
+          {showSearchClearButton ? (
+            <button
+              type="button"
+              aria-label="문서 검색어 지우기"
+              className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground transition hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              onClick={() => {
+                setSearchQuery("");
+                searchInputRef.current?.focus();
+              }}
+            >
+              <X className="h-4 w-4" />
+            </button>
+          ) : null}
         </div>
         {scanState === "scanning" || skippedCount > 0 ? (
           <div className="mt-2 flex items-center justify-between gap-3 text-xs text-muted-foreground">
@@ -272,6 +300,7 @@ export function FileTree({
                     depth={depth}
                     expanded={expandedPaths.has(node.path)}
                     focused={currentFocusPath === node.path}
+                    searchQuery={searchQuery}
                     onFocusItem={setFocusedPath}
                     onToggle={toggleDirectory}
                     onToggleFavorite={onToggleFavorite}
@@ -301,6 +330,7 @@ function TreeNode({
   depth,
   expanded,
   focused,
+  searchQuery,
   onFocusItem,
   onToggle,
   onToggleFavorite,
@@ -312,6 +342,7 @@ function TreeNode({
   depth: number;
   expanded: boolean;
   focused: boolean;
+  searchQuery: string;
   onFocusItem: (path: string) => void;
   onToggle: (path: string) => void;
   onToggleFavorite: (path: string) => void;
@@ -344,7 +375,9 @@ function TreeNode({
             <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-hover:text-accent-foreground" />
           )}
           {expanded ? <FolderOpen className="h-4 w-4 shrink-0" /> : <Folder className="h-4 w-4 shrink-0" />}
-          <span className="truncate font-medium">{label}</span>
+          <span className="truncate font-medium">
+            <HighlightedLabel text={label} searchQuery={searchQuery} />
+          </span>
           <span className="ml-auto rounded bg-muted px-1.5 py-0.5 text-[11px] tabular-nums text-muted-foreground">
             {countLeafNodes(node)}
           </span>
@@ -376,7 +409,9 @@ function TreeNode({
           className="flex min-w-0 flex-1 items-center gap-2 rounded-md text-left outline-none"
         >
           <FileText className={cn("h-4 w-4 shrink-0", isSelected ? "opacity-90" : "text-muted-foreground")} />
-          <span className="truncate">{label}</span>
+          <span className="truncate">
+            <HighlightedLabel text={label} searchQuery={searchQuery} />
+          </span>
         </button>
         <button
           type="button"
@@ -391,6 +426,18 @@ function TreeNode({
         </button>
       </div>
     </li>
+  );
+}
+
+function HighlightedLabel({ text, searchQuery }: { text: string; searchQuery: string }) {
+  return splitHighlightedText(text, searchQuery).map((part, index) =>
+    part.highlight ? (
+      <mark key={`${part.text}-${index}`} className="rounded bg-primary/20 px-0.5 text-inherit">
+        {part.text}
+      </mark>
+    ) : (
+      part.text
+    ),
   );
 }
 
@@ -448,6 +495,60 @@ export function filterFiles(files: string[], normalizedSearchQuery: string) {
     const normalizedLabel = fileLabel(file).toLocaleLowerCase();
     return normalizedPath.includes(normalizedSearchQuery) || normalizedLabel.includes(normalizedSearchQuery);
   });
+}
+
+export function shouldShowSearchClearButton(searchQuery: string) {
+  return searchQuery.length > 0;
+}
+
+export function splitHighlightedText(text: string, searchQuery: string) {
+  const query = searchQuery.trim();
+  if (!query) {
+    return [{ text, highlight: false }];
+  }
+
+  const matchIndex = text.toLocaleLowerCase().indexOf(query.toLocaleLowerCase());
+  if (matchIndex === -1) {
+    return [{ text, highlight: false }];
+  }
+
+  const before = text.slice(0, matchIndex);
+  const match = text.slice(matchIndex, matchIndex + query.length);
+  const after = text.slice(matchIndex + query.length);
+
+  return [
+    before ? { text: before, highlight: false } : null,
+    { text: match, highlight: true },
+    after ? { text: after, highlight: false } : null,
+  ].filter((part): part is { text: string; highlight: boolean } => Boolean(part));
+}
+
+export function readStoredSearchQuery() {
+  if (typeof window === "undefined") {
+    return "";
+  }
+
+  try {
+    return window.sessionStorage.getItem(DOCUMENT_TREE_SEARCH_QUERY_STORAGE_KEY) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+export function writeStoredSearchQuery(searchQuery: string) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  try {
+    if (searchQuery) {
+      window.sessionStorage.setItem(DOCUMENT_TREE_SEARCH_QUERY_STORAGE_KEY, searchQuery);
+    } else {
+      window.sessionStorage.removeItem(DOCUMENT_TREE_SEARCH_QUERY_STORAGE_KEY);
+    }
+  } catch {
+    // Ignore storage failures so the document tree remains usable in restricted contexts.
+  }
 }
 
 export function buildTree(files: string[]) {
