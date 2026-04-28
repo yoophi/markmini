@@ -4,6 +4,8 @@ import { extractHeadings } from "@/lib/markdown";
 import { getInitialSession, readMarkdownFile, refreshSession, type ScanProgressPayload } from "@/lib/tauri";
 import type { HeadingItem, ScanStatus } from "@/types/content";
 
+export const RECENT_DOCUMENTS_STORAGE_KEY_PREFIX = "markmini.recentDocuments";
+
 type BootstrapState = "idle" | "loading" | "ready" | "error";
 type DocumentState = "idle" | "loading" | "ready" | "error";
 
@@ -97,12 +99,13 @@ export const useAppStore = create<AppStore>((set, get) => ({
     try {
       const session = await getInitialSession();
       const { values: files, valueSet: fileSet } = mergeSortedUnique([], new Set(), session.files);
+      const recentDocuments = pruneDocumentList(readStoredRecentDocuments(session.rootDir), fileSet);
       set({
         bootstrapState: "ready",
         rootDir: session.rootDir,
         files,
         fileSet,
-        recentDocuments: pruneDocumentList(get().recentDocuments, fileSet),
+        recentDocuments,
         selectedFile: session.selectedFile,
       });
 
@@ -130,9 +133,12 @@ export const useAppStore = create<AppStore>((set, get) => ({
         return;
       }
 
+      const recentDocuments = addRecentDocument(get().recentDocuments, document.relativePath, get().fileSet);
+      writeStoredRecentDocuments(get().rootDir, recentDocuments);
+
       set({
         selectedFile: document.relativePath,
-        recentDocuments: addRecentDocument(get().recentDocuments, document.relativePath, get().fileSet),
+        recentDocuments,
         document: createReadyDocument(document.content, document.headings),
       });
     } catch (error) {
@@ -182,11 +188,13 @@ export const useAppStore = create<AppStore>((set, get) => ({
       const session = await refreshSession();
       const { values: files, valueSet: fileSet } = mergeSortedUnique([], new Set(), session.files);
       const selectedFile = session.selectedFile;
+      const recentDocuments = pruneDocumentList(previousState.recentDocuments, fileSet);
+      writeStoredRecentDocuments(session.rootDir, recentDocuments);
       set({
         rootDir: session.rootDir,
         files,
         fileSet,
-        recentDocuments: pruneDocumentList(previousState.recentDocuments, fileSet),
+        recentDocuments,
         selectedFile,
         scanState: "completed",
       });
@@ -275,4 +283,38 @@ export function addRecentDocument(current: string[], documentPath: string, avail
 
 export function pruneDocumentList(paths: string[], availableFiles: ReadonlySet<string>, limit = 5) {
   return paths.filter((path, index) => index === paths.indexOf(path) && availableFiles.has(path)).slice(0, limit);
+}
+
+export function readStoredRecentDocuments(rootDir: string | null) {
+  if (!rootDir || typeof window === "undefined") {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(recentDocumentsStorageKey(rootDir)) ?? "[]");
+    return Array.isArray(parsed) ? parsed.filter((entry): entry is string => typeof entry === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+export function writeStoredRecentDocuments(rootDir: string | null, recentDocuments: string[]) {
+  if (!rootDir || typeof window === "undefined") {
+    return;
+  }
+
+  try {
+    const key = recentDocumentsStorageKey(rootDir);
+    if (recentDocuments.length > 0) {
+      window.localStorage.setItem(key, JSON.stringify(recentDocuments));
+    } else {
+      window.localStorage.removeItem(key);
+    }
+  } catch {
+    // Ignore storage failures; recents still work for the current window state.
+  }
+}
+
+export function recentDocumentsStorageKey(rootDir: string) {
+  return `${RECENT_DOCUMENTS_STORAGE_KEY_PREFIX}:${rootDir}`;
 }

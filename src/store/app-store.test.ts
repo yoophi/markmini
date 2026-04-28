@@ -1,7 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { getInitialSession, readMarkdownFile, refreshSession } from "@/lib/tauri";
-import { addRecentDocument, pruneDocumentList, useAppStore } from "@/store/app-store";
+import {
+  RECENT_DOCUMENTS_STORAGE_KEY_PREFIX,
+  addRecentDocument,
+  pruneDocumentList,
+  readStoredRecentDocuments,
+  recentDocumentsStorageKey,
+  useAppStore,
+  writeStoredRecentDocuments,
+} from "@/store/app-store";
 import type { HeadingItem, MarkdownDocument } from "@/types/content";
 
 vi.mock("@/lib/tauri", () => ({
@@ -86,6 +94,20 @@ describe("viewer app store", () => {
       headings: [heading],
       error: null,
     });
+  });
+
+  it("restores persisted recent documents during bootstrap", async () => {
+    const localStorage = installLocalStorageMock();
+    localStorage.setItem(recentDocumentsStorageKey("/vault"), JSON.stringify(["notes/b.md", "missing.md"]));
+    vi.mocked(getInitialSession).mockResolvedValue({
+      rootDir: "/vault",
+      files: ["notes/a.md", "notes/b.md"],
+      selectedFile: null,
+    });
+
+    await useAppStore.getState().bootstrap();
+
+    expect(useAppStore.getState().recentDocuments).toEqual(["notes/b.md"]);
   });
 
   it("ignores stale document reads when a newer selection finishes first", async () => {
@@ -188,4 +210,38 @@ describe("recent document helpers", () => {
       "b.md",
     ]);
   });
+
+  it("persists recent paths per root without storing content", () => {
+    const localStorage = installLocalStorageMock();
+
+    writeStoredRecentDocuments("/vault", ["a.md", "b.md"]);
+
+    expect(localStorage.getItem(`${RECENT_DOCUMENTS_STORAGE_KEY_PREFIX}:/vault`)).toBe(JSON.stringify(["a.md", "b.md"]));
+    expect(readStoredRecentDocuments("/vault")).toEqual(["a.md", "b.md"]);
+  });
+
+  it("removes persisted recents when the list is empty", () => {
+    const localStorage = installLocalStorageMock();
+    localStorage.setItem(recentDocumentsStorageKey("/vault"), JSON.stringify(["a.md"]));
+
+    writeStoredRecentDocuments("/vault", []);
+
+    expect(localStorage.getItem(recentDocumentsStorageKey("/vault"))).toBeNull();
+  });
 });
+
+function installLocalStorageMock() {
+  const values = new Map<string, string>();
+  const localStorage = {
+    getItem: (key: string) => values.get(key) ?? null,
+    removeItem: (key: string) => values.delete(key),
+    setItem: (key: string, value: string) => values.set(key, value),
+  };
+
+  Object.defineProperty(globalThis, "window", {
+    value: { localStorage },
+    configurable: true,
+  });
+
+  return localStorage;
+}
