@@ -2,14 +2,18 @@ import { describe, expect, it } from "vitest";
 
 import {
   DOCUMENT_TREE_SEARCH_QUERY_STORAGE_KEY,
+  DOCUMENT_TREE_SORT_MODE_STORAGE_KEY,
   buildTree,
   filterFiles,
   flattenVisibleTree,
+  parseSortMode,
   readStoredSearchQuery,
+  readStoredSortMode,
   shouldShowSearchClearButton,
   splitHighlightedText,
   treeNodeIndent,
   writeStoredSearchQuery,
+  writeStoredSortMode,
 } from "./file-tree";
 
 const files = ["docs/guide.md", "notes/today.md", "projects/markmini/plan.md"];
@@ -183,5 +187,22 @@ describe("file tree structure", () => {
 
   it("uses a predictable indentation step for each path depth", () => {
     expect([0, 1, 2, 3].map(treeNodeIndent)).toEqual(["8px", "28px", "48px", "68px"]);
+  });
+});
+
+describe("document tree sorting", () => {
+  it("parses unknown sort modes as name sort", () => {
+    expect(parseSortMode("path")).toBe("path");
+    expect(parseSortMode("modified")).toBe("name");
+    expect(parseSortMode(null)).toBe("name");
+  });
+
+  it("stores and restores the selected sort mode in session storage", () => {
+    const sessionStorage = installSessionStorageMock();
+
+    writeStoredSortMode("path");
+
+    expect(sessionStorage.getItem(DOCUMENT_TREE_SORT_MODE_STORAGE_KEY)).toBe("path");
+    expect(readStoredSortMode()).toBe("path");
   });
 });

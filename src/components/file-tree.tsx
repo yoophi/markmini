@@ -7,6 +7,11 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import type { ScanStatus } from "@/types/content";
 
+export type DocumentTreeSortMode = "name" | "path";
+
+export const DOCUMENT_TREE_SEARCH_QUERY_STORAGE_KEY = "markmini.documentTree.searchQuery";
+export const DOCUMENT_TREE_SORT_MODE_STORAGE_KEY = "markmini.documentTree.sortMode";
+
 interface FileTreeProps {
   files: string[];
   recentDocuments: string[];
@@ -17,8 +22,6 @@ interface FileTreeProps {
   onSelect: (relativePath: string) => void;
   onToggleFavorite: (relativePath: string) => void;
 }
-
-export const DOCUMENT_TREE_SEARCH_QUERY_STORAGE_KEY = "markmini.documentTree.searchQuery";
 
 export function FileTree({
   files,
@@ -31,9 +34,10 @@ export function FileTree({
   onToggleFavorite,
 }: FileTreeProps) {
   const [searchQuery, setSearchQuery] = useState(readStoredSearchQuery);
+  const [sortMode, setSortMode] = useState<DocumentTreeSortMode>(readStoredSortMode);
   const normalizedSearchQuery = searchQuery.trim().toLocaleLowerCase();
   const filteredFiles = useMemo(() => filterFiles(files, normalizedSearchQuery), [files, normalizedSearchQuery]);
-  const tree = useMemo(() => buildTree(filteredFiles), [filteredFiles]);
+  const tree = useMemo(() => buildTree(filteredFiles, sortMode), [filteredFiles, sortMode]);
   const directoryPaths = useMemo(() => collectDirectoryPaths(tree), [tree]);
   const selectedFileIsFilteredOut = Boolean(normalizedSearchQuery && selectedFile && !filteredFiles.includes(selectedFile));
   const hasInitializedExpansionRef = useRef(false);
@@ -46,6 +50,10 @@ export function FileTree({
   useEffect(() => {
     writeStoredSearchQuery(searchQuery);
   }, [searchQuery]);
+
+  useEffect(() => {
+    writeStoredSortMode(sortMode);
+  }, [sortMode]);
 
   useEffect(() => {
     setExpandedPaths((current) => {
@@ -213,6 +221,18 @@ export function FileTree({
               <X className="h-4 w-4" />
             </button>
           ) : null}
+        </div>
+        <div className="mt-3 flex items-center justify-between gap-3 text-xs text-muted-foreground">
+          <span>정렬</span>
+          <select
+            value={sortMode}
+            onChange={(event) => setSortMode(parseSortMode(event.target.value))}
+            aria-label="문서 트리 정렬"
+            className="h-8 rounded-md border border-border bg-background px-2 text-xs text-foreground outline-none transition focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <option value="name">이름순</option>
+            <option value="path">경로순</option>
+          </select>
         </div>
         {scanState === "scanning" || skippedCount > 0 ? (
           <div className="mt-2 flex items-center justify-between gap-3 text-xs text-muted-foreground">
@@ -551,14 +571,42 @@ export function writeStoredSearchQuery(searchQuery: string) {
   }
 }
 
-export function buildTree(files: string[]) {
+export function readStoredSortMode(): DocumentTreeSortMode {
+  if (typeof window === "undefined") {
+    return "name";
+  }
+
+  try {
+    return parseSortMode(window.sessionStorage.getItem(DOCUMENT_TREE_SORT_MODE_STORAGE_KEY));
+  } catch {
+    return "name";
+  }
+}
+
+export function writeStoredSortMode(sortMode: DocumentTreeSortMode) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  try {
+    window.sessionStorage.setItem(DOCUMENT_TREE_SORT_MODE_STORAGE_KEY, sortMode);
+  } catch {
+    // Keep sorting usable even if session storage is unavailable.
+  }
+}
+
+export function parseSortMode(value: unknown): DocumentTreeSortMode {
+  return value === "path" ? "path" : "name";
+}
+
+export function buildTree(files: string[], sortMode: DocumentTreeSortMode = "name") {
   const root: TreeNodeData[] = [];
 
   for (const file of files) {
     insertNode(root, file.split("/"), "", file);
   }
 
-  return sortTree(root);
+  return sortTree(root, sortMode);
 }
 
 function insertNode(nodes: TreeNodeData[], segments: string[], parentPath: string, originalPath: string) {
@@ -591,17 +639,19 @@ function insertNode(nodes: TreeNodeData[], segments: string[], parentPath: strin
   }
 }
 
-function sortTree(nodes: TreeNodeData[]): TreeNodeData[] {
+function sortTree(nodes: TreeNodeData[], sortMode: DocumentTreeSortMode): TreeNodeData[] {
   return nodes
     .map((node) => ({
       ...node,
-      children: sortTree(node.children),
+      children: sortTree(node.children, sortMode),
     }))
     .sort((left, right) => {
       if (left.kind !== right.kind) {
         return left.kind === "directory" ? -1 : 1;
       }
 
-      return left.name.localeCompare(right.name);
+      const leftValue = sortMode === "path" ? left.path : left.name;
+      const rightValue = sortMode === "path" ? right.path : right.name;
+      return leftValue.localeCompare(rightValue);
     });
 }
