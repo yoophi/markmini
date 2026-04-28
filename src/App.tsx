@@ -117,8 +117,8 @@ function App() {
               </div>
             </aside>
 
-            <section className="grid min-h-0 gap-4 xl:grid-cols-[minmax(0,1fr)_280px]">
-              <Card className="min-h-[70vh] overflow-hidden">
+            <section className="grid min-h-0 min-w-0 gap-4 xl:grid-cols-[minmax(0,1fr)_280px]">
+              <Card className="min-h-[70vh] min-w-0 overflow-hidden">
                 <CardContent className="flex h-full flex-col p-0">
                   <div className="border-b border-border/60 px-5 py-4">
                     <div className="flex items-center gap-2 text-sm font-medium uppercase tracking-widest text-muted-foreground">
