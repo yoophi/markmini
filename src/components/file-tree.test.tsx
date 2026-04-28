@@ -82,4 +82,37 @@ describe("FileTree search", () => {
 
     expect(onSelect).toHaveBeenCalledWith("notes/today.md");
   });
+
+  it("clears the search query with the clear button", () => {
+    const onSearchQueryChange = vi.fn();
+    renderFileTree({ onSearchQueryChange });
+
+    fireEvent.change(screen.getByLabelText("문서 검색"), { target: { value: "today" } });
+    fireEvent.click(screen.getByLabelText("문서 검색어 지우기"));
+
+    expect(onSearchQueryChange).toHaveBeenLastCalledWith("");
+    expect((screen.getByLabelText("문서 검색") as HTMLInputElement).value).toBe("");
+    expect(screen.queryByText("3")).not.toBeNull();
+  });
+
+  it("clears the search query with Escape while focused", () => {
+    const onSearchQueryChange = vi.fn();
+    renderFileTree({ onSearchQueryChange });
+    const searchInput = screen.getByLabelText("문서 검색");
+
+    fireEvent.change(searchInput, { target: { value: "today" } });
+    fireEvent.keyDown(searchInput, { key: "Escape" });
+
+    expect(onSearchQueryChange).toHaveBeenLastCalledWith("");
+    expect((searchInput as HTMLInputElement).value).toBe("");
+  });
+
+  it("focuses the search input with Cmd/Ctrl+F", () => {
+    renderFileTree();
+    const searchInput = screen.getByLabelText("문서 검색");
+
+    fireEvent.keyDown(window, { key: "f", ctrlKey: true });
+
+    expect(document.activeElement).toBe(searchInput);
+  });
 });

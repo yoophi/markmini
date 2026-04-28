@@ -1,5 +1,5 @@
-import { type KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, ChevronRight, FileText, Folder, FolderOpen, Search } from "lucide-react";
+import { type KeyboardEvent as ReactKeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
+import { ChevronDown, ChevronRight, FileText, Folder, FolderOpen, Search, X } from "lucide-react";
 
 import { fileLabel } from "@/lib/path";
 import { cn } from "@/lib/utils";
@@ -35,6 +35,7 @@ export function FileTree({
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(() => new Set());
   const [focusedPath, setFocusedPath] = useState<string | null>(selectedFile);
   const treeRef = useRef<HTMLUListElement | null>(null);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     setExpandedPaths((current) => {
@@ -90,7 +91,31 @@ export function FileTree({
     });
   };
 
-  const handleTreeKeyDown = (event: KeyboardEvent<HTMLUListElement>) => {
+  useEffect(() => {
+    const handleDocumentKeyDown = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "f") {
+        event.preventDefault();
+        searchInputRef.current?.focus();
+      }
+    };
+
+    window.addEventListener("keydown", handleDocumentKeyDown);
+    return () => window.removeEventListener("keydown", handleDocumentKeyDown);
+  }, []);
+
+  const clearSearchQuery = () => {
+    onSearchQueryChange("");
+    searchInputRef.current?.focus();
+  };
+
+  const handleSearchKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
+    if (event.key === "Escape" && searchQuery) {
+      event.preventDefault();
+      clearSearchQuery();
+    }
+  };
+
+  const handleTreeKeyDown = (event: ReactKeyboardEvent<HTMLUListElement>) => {
     if (renderedItems.length === 0 || !currentFocusPath) {
       return;
     }
@@ -175,13 +200,25 @@ export function FileTree({
         <div className="relative mt-3">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <input
+            ref={searchInputRef}
             type="search"
             value={searchQuery}
             onChange={(event) => onSearchQueryChange(event.target.value)}
+            onKeyDown={handleSearchKeyDown}
             placeholder="문서 검색"
             aria-label="문서 검색"
-            className="h-9 w-full rounded-md border border-border bg-background pl-9 pr-3 text-sm text-foreground outline-none transition placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+            className="h-9 w-full rounded-md border border-border bg-background pl-9 pr-9 text-sm text-foreground outline-none transition placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
           />
+          {searchQuery ? (
+            <button
+              type="button"
+              aria-label="문서 검색어 지우기"
+              onClick={clearSearchQuery}
+              className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded text-muted-foreground transition hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          ) : null}
         </div>
         {scanState === "scanning" || skippedCount > 0 ? (
           <div className="mt-2 flex items-center justify-between gap-3 text-xs text-muted-foreground">
