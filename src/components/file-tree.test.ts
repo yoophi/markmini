@@ -5,6 +5,7 @@ import {
   buildTree,
   filterFiles,
   flattenVisibleTree,
+  formatModifiedAt,
   parseSortMode,
   readStoredSortMode,
   treeNodeIndent,
@@ -154,6 +155,18 @@ describe("document tree sorting", () => {
 
     expect(tree.map((node) => node.path)).toEqual(["notes", "docs", "old.md"]);
     expect(tree[1]?.children.map((node) => node.path)).toEqual(["docs/newer.md", "docs/older.md"]);
+  });
+});
+
+describe("modified time labels", () => {
+  it("formats recent modified times without exposing file content", () => {
+    const now = Date.UTC(2026, 3, 28, 13, 0, 0);
+
+    expect(formatModifiedAt(null, now)).toBeNull();
+    expect(formatModifiedAt(now - 30_000, now)).toBe("방금 전");
+    expect(formatModifiedAt(now - 5 * 60_000, now)).toBe("5분 전");
+    expect(formatModifiedAt(now - 3 * 60 * 60_000, now)).toBe("3시간 전");
+    expect(formatModifiedAt(now - 2 * 24 * 60 * 60_000, now)).toBe("2일 전");
   });
 });
 
