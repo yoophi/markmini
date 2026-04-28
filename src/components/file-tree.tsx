@@ -256,6 +256,7 @@ export function FileTree({
                     node={node}
                     selectedFile={selectedFile}
                     onSelect={onSelect}
+                    searchQuery={normalizedSearchQuery}
                     depth={depth}
                     expanded={expandedPaths.has(node.path)}
                     focused={currentFocusPath === node.path}
@@ -283,6 +284,7 @@ function TreeNode({
   node,
   selectedFile,
   onSelect,
+  searchQuery,
   depth,
   expanded,
   focused,
@@ -292,6 +294,7 @@ function TreeNode({
   node: TreeNodeData;
   selectedFile: string | null;
   onSelect: (relativePath: string) => void;
+  searchQuery: string;
   depth: number;
   expanded: boolean;
   focused: boolean;
@@ -301,6 +304,8 @@ function TreeNode({
   const isDirectory = node.kind === "directory";
   const isSelected = selectedFile === node.path;
   const label = isDirectory ? node.name : fileLabel(node.path);
+  const normalizedLabel = label.toLocaleLowerCase();
+  const pathMatchesOnly = Boolean(searchQuery && !normalizedLabel.includes(searchQuery) && node.path.toLocaleLowerCase().includes(searchQuery));
 
   if (node.kind === "directory") {
     return (
@@ -326,7 +331,7 @@ function TreeNode({
             <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-hover:text-accent-foreground" />
           )}
           {expanded ? <FolderOpen className="h-4 w-4 shrink-0" /> : <Folder className="h-4 w-4 shrink-0" />}
-          <span className="truncate font-medium">{label}</span>
+          <span className="truncate font-medium">{renderHighlightedText(label, searchQuery, false)}</span>
           <span className="ml-auto rounded bg-muted px-1.5 py-0.5 text-[11px] tabular-nums text-muted-foreground">
             {countLeafNodes(node)}
           </span>
@@ -347,7 +352,7 @@ function TreeNode({
         onFocus={() => onFocusItem(node.path)}
         onClick={() => onSelect(node.path)}
         className={cn(
-          "group flex h-9 w-full items-center gap-2 rounded-md pr-2 text-left text-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
+          "group flex min-h-9 w-full items-center gap-2 rounded-md py-1 pr-2 text-left text-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
           treeNodeIndentClass(depth),
           isSelected
             ? "bg-primary text-primary-foreground shadow-sm"
@@ -356,9 +361,41 @@ function TreeNode({
       >
         <span className="h-4 w-4 shrink-0" aria-hidden="true" />
         <FileText className={cn("h-4 w-4 shrink-0", isSelected ? "opacity-90" : "text-muted-foreground")} />
-        <span className="truncate">{label}</span>
+        <span className="min-w-0 flex-1 truncate">
+          <span className="truncate">{renderHighlightedText(label, searchQuery, isSelected)}</span>
+          {pathMatchesOnly ? (
+            <span className={cn("mt-0.5 block truncate text-xs", isSelected ? "text-primary-foreground/75" : "text-muted-foreground")}>
+              {renderHighlightedText(node.path, searchQuery, isSelected)}
+            </span>
+          ) : null}
+        </span>
       </button>
     </li>
+  );
+}
+
+function renderHighlightedText(text: string, normalizedSearchQuery: string, isSelected: boolean) {
+  if (!normalizedSearchQuery) {
+    return text;
+  }
+
+  const matchIndex = text.toLocaleLowerCase().indexOf(normalizedSearchQuery);
+  if (matchIndex === -1) {
+    return text;
+  }
+
+  const before = text.slice(0, matchIndex);
+  const match = text.slice(matchIndex, matchIndex + normalizedSearchQuery.length);
+  const after = text.slice(matchIndex + normalizedSearchQuery.length);
+
+  return (
+    <>
+      {before}
+      <mark className={cn("rounded px-0.5", isSelected ? "bg-primary-foreground/25 text-inherit" : "bg-amber-200 text-amber-950")}>
+        {match}
+      </mark>
+      {after}
+    </>
   );
 }
 

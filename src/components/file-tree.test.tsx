@@ -115,4 +115,19 @@ describe("FileTree search", () => {
 
     expect(document.activeElement).toBe(searchInput);
   });
+
+  it("highlights matching text in visible file labels", () => {
+    const { container } = renderFileTree({ searchQuery: "today" });
+
+    expect(screen.queryByRole("treeitem", { name: /today/i })).not.toBeNull();
+    expect(container.querySelector("mark")?.textContent).toBe("today");
+  });
+
+  it("shows highlighted path context when the path matches outside the file label", () => {
+    const { container } = renderFileTree({ searchQuery: "markmini" });
+
+    expect(screen.queryByRole("treeitem", { name: /plan/i })).not.toBeNull();
+    expect(screen.queryByText((_, element) => element?.textContent === "projects/markmini/plan.md")).not.toBeNull();
+    expect(container.querySelector("mark")?.textContent).toBe("markmini");
+  });
 });
