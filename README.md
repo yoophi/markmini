@@ -108,12 +108,16 @@ pnpm dev
 
 ## 검증
 
+로컬에서는 아래 명령으로 PR 검증과 같은 핵심 체크를 재현할 수 있습니다.
+
 ```bash
 pnpm test
 pnpm typecheck
 cargo check --manifest-path src-tauri/Cargo.toml
 pnpm build
 ```
+
+GitHub Actions의 **Validation** workflow도 PR과 `main` push에서 같은 순서의 검증을 실행합니다. CI는 Ubuntu runner에서 Tauri `cargo check`가 동작하도록 WebKitGTK, GTK, AppIndicator, librsvg 개발 패키지를 먼저 설치합니다.
 
 빌드·설치·macOS Gatekeeper 대응 등 자세한 내용은 [빌드 및 설치 가이드](./docs/build-and-install.md)를 참고하세요.
 
