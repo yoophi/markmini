@@ -199,6 +199,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
       persistRecentDocuments(get().rootDir, recentDocuments);
       set({
         selectedFile: document.relativePath,
+        fileMetadata: mergeFileMetadata(get().fileMetadata, [document.fileMetadata]),
         recentDocuments,
         successMessage: null,
         document: createReadyDocument(document.content, document.headings),
@@ -230,7 +231,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
     try {
       const document = await createMarkdownFile(normalizedPath, content);
       const { values: files, valueSet: fileSet } = mergeSortedUnique(state.files, state.fileSet, [document.relativePath]);
-      const fileMetadata = mergeFileMetadata(state.fileMetadata, [{ relativePath: document.relativePath, modifiedAt: Date.now() }]);
+      const fileMetadata = mergeFileMetadata(state.fileMetadata, [document.fileMetadata]);
       set((state) => {
         const recentDocuments = addRecentDocument(state.recentDocuments, document.relativePath);
         persistRecentDocuments(state.rootDir, recentDocuments);
@@ -275,10 +276,8 @@ export const useAppStore = create<AppStore>((set, get) => ({
         .filter((entry) => entry !== result.oldRelativePath)
         .concat(result.document.relativePath)
         .sort((a, b) => a.localeCompare(b));
-      const { [result.oldRelativePath]: oldMetadata, ...remainingFileMetadata } = state.fileMetadata;
-      const fileMetadata = mergeFileMetadata(remainingFileMetadata, [
-        { relativePath: result.document.relativePath, modifiedAt: oldMetadata?.modifiedAt ?? Date.now() },
-      ]);
+      const { [result.oldRelativePath]: _oldMetadata, ...remainingFileMetadata } = state.fileMetadata;
+      const fileMetadata = mergeFileMetadata(remainingFileMetadata, [result.document.fileMetadata]);
       set((state) => {
         const favoriteDocuments = state.favoriteDocuments.includes(result.oldRelativePath)
           ? [result.document.relativePath, ...state.favoriteDocuments.filter((entry) => entry !== result.oldRelativePath)]
@@ -396,6 +395,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
       const document = await writeMarkdownFile(current, draftContent);
       set((state) => ({
         selectedFile: document.relativePath,
+        fileMetadata: mergeFileMetadata(state.fileMetadata, [document.fileMetadata]),
         successMessage: `저장했습니다: ${document.relativePath}`,
         successMessageId: state.successMessageId + 1,
         document: {
@@ -446,6 +446,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
       set((state) => ({
         successMessage: null,
         selectedFile: document.relativePath,
+        fileMetadata: mergeFileMetadata(state.fileMetadata, [document.fileMetadata]),
         document: {
           ...createReadyDocument(document.content, document.headings),
           mode: state.document.mode,

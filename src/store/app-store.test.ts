@@ -18,9 +18,10 @@ vi.mock("@/lib/tauri", () => ({
 
 const heading: HeadingItem = { depth: 1, text: "Saved", id: "saved" };
 
-function markdownDocument(relativePath: string, content: string): MarkdownDocument {
+function markdownDocument(relativePath: string, content: string, modifiedAt = 100): MarkdownDocument {
   return {
     relativePath,
+    fileMetadata: { relativePath, modifiedAt },
     content,
     headings: [heading],
   };
@@ -147,8 +148,8 @@ describe("app store document safety flows", () => {
   });
 
   it("saves the dirty draft and clears dirty state", async () => {
-    vi.mocked(readMarkdownFile).mockResolvedValue(markdownDocument("notes/a.md", "# Saved\n"));
-    vi.mocked(writeMarkdownFile).mockResolvedValue(markdownDocument("notes/a.md", "# Draft\n"));
+    vi.mocked(readMarkdownFile).mockResolvedValue(markdownDocument("notes/a.md", "# Saved\n", 100));
+    vi.mocked(writeMarkdownFile).mockResolvedValue(markdownDocument("notes/a.md", "# Draft\n", 200));
 
     await useAppStore.getState().openDocument("notes/a.md");
     useAppStore.getState().updateDraftContent("# Draft\n");
@@ -167,6 +168,7 @@ describe("app store document safety flows", () => {
       error: null,
     });
     expect(useAppStore.getState().successMessage).toBe("저장했습니다: notes/a.md");
+    expect(useAppStore.getState().fileMetadata["notes/a.md"]).toEqual({ relativePath: "notes/a.md", modifiedAt: 200 });
   });
 
   it("does not save over an unresolved external change", async () => {

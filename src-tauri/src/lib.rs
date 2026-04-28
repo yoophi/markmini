@@ -47,6 +47,7 @@ struct HeadingItem {
 #[serde(rename_all = "camelCase")]
 struct MarkdownDocument {
     relative_path: String,
+    file_metadata: MarkdownFileMetadata,
     content: String,
     headings: Vec<HeadingItem>,
 }
@@ -212,9 +213,11 @@ fn read_markdown_file(
             error
         )
     })?;
+    let file_metadata = markdown_file_metadata(&canonical_file, &relative_path);
 
     Ok(MarkdownDocument {
         relative_path,
+        file_metadata,
         headings: extract_headings(&content),
         content,
     })
@@ -227,13 +230,13 @@ fn write_markdown_file(
     window: tauri::WebviewWindow,
     state: tauri::State<'_, AppState>,
 ) -> Result<MarkdownDocument, String> {
-    let sessions = state
+    let mut sessions = state
         .sessions
         .lock()
         .map_err(|_| "failed to acquire sessions lock".to_string())?;
 
     let session = sessions
-        .get(window.label())
+        .get_mut(window.label())
         .ok_or_else(|| format!("no session for window {}", window.label()))?;
 
     if !session.files.iter().any(|entry| entry == &relative_path) {
@@ -254,9 +257,12 @@ fn write_markdown_file(
             error
         )
     })?;
+    let file_metadata = markdown_file_metadata(&canonical_file, &relative_path);
+    upsert_file_metadata(&mut session.file_metadata, file_metadata.clone());
 
     Ok(MarkdownDocument {
         relative_path,
+        file_metadata,
         headings: extract_headings(&content),
         content,
     })
@@ -302,14 +308,13 @@ fn create_markdown_file(
         session.files.push(relative_path.clone());
         session.files.sort();
     }
-    upsert_file_metadata(
-        &mut session.file_metadata,
-        markdown_file_metadata(&file_path, &relative_path),
-    );
+    let file_metadata = markdown_file_metadata(&file_path, &relative_path);
+    upsert_file_metadata(&mut session.file_metadata, file_metadata.clone());
     session.selected_file = Some(relative_path.clone());
 
     Ok(MarkdownDocument {
         relative_path,
+        file_metadata,
         headings: extract_headings(&content),
         content,
     })
@@ -377,10 +382,8 @@ fn rename_markdown_file(
     session
         .file_metadata
         .retain(|entry| entry.relative_path != from_relative_path);
-    upsert_file_metadata(
-        &mut session.file_metadata,
-        markdown_file_metadata(&target_file_path, &to_relative_path),
-    );
+    let file_metadata = markdown_file_metadata(&target_file_path, &to_relative_path);
+    upsert_file_metadata(&mut session.file_metadata, file_metadata.clone());
     if session.selected_file.as_deref() == Some(&from_relative_path) {
         session.selected_file = Some(to_relative_path.clone());
     }
@@ -397,6 +400,7 @@ fn rename_markdown_file(
         old_relative_path: from_relative_path,
         document: MarkdownDocument {
             relative_path: to_relative_path,
+            file_metadata,
             headings: extract_headings(&content),
             content,
         },

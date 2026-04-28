@@ -20,6 +20,7 @@ export type ScanStatus = "idle" | "scanning" | "completed" | "error";
 
 export interface MarkdownDocument {
   relativePath: string;
+  fileMetadata: MarkdownFileMetadata;
   content: string;
   headings: HeadingItem[];
 }
