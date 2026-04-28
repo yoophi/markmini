@@ -2,7 +2,7 @@ import { create } from "zustand";
 
 import { extractHeadings } from "@/lib/markdown";
 import { getInitialSession, readMarkdownFile, refreshSession, type ScanProgressPayload } from "@/lib/tauri";
-import type { HeadingItem, ScanStatus } from "@/types/content";
+import type { HeadingItem, MarkdownFileMetadata, ScanStatus } from "@/types/content";
 
 type BootstrapState = "idle" | "loading" | "ready" | "error";
 type DocumentState = "idle" | "loading" | "ready" | "error";
@@ -12,6 +12,7 @@ interface AppStore {
   error: string | null;
   rootDir: string | null;
   files: string[];
+  fileMetadata: Record<string, MarkdownFileMetadata>;
   fileSet: ReadonlySet<string>;
   scanState: ScanStatus;
   scanSkippedPaths: string[];
@@ -39,6 +40,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
   error: null,
   rootDir: null,
   files: [],
+  fileMetadata: {},
   fileSet: new Set(),
   scanState: "idle",
   scanSkippedPaths: [],
@@ -69,6 +71,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
     set({
       bootstrapState: state.bootstrapState === "loading" ? "ready" : state.bootstrapState,
       files,
+      fileMetadata: mergeFileMetadata(state.fileMetadata, payload.fileMetadata),
       fileSet,
       scanState: payload.status,
       scanSkippedPaths,
@@ -99,6 +102,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
         bootstrapState: "ready",
         rootDir: session.rootDir,
         files,
+        fileMetadata: mergeFileMetadata({}, session.fileMetadata),
         fileSet,
         selectedFile: session.selectedFile,
       });
@@ -181,6 +185,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
       set({
         rootDir: session.rootDir,
         files,
+        fileMetadata: mergeFileMetadata({}, session.fileMetadata),
         fileSet,
         selectedFile,
         scanState: "completed",
@@ -258,4 +263,19 @@ function mergeSortedUnique(current: string[], currentSet: ReadonlySet<string>, i
   }
 
   return { values: [...next].sort(), valueSet: next };
+}
+
+export function mergeFileMetadata(
+  current: Record<string, MarkdownFileMetadata>,
+  incoming: MarkdownFileMetadata[],
+): Record<string, MarkdownFileMetadata> {
+  if (incoming.length === 0) {
+    return current;
+  }
+
+  const next = { ...current };
+  for (const metadata of incoming) {
+    next[metadata.relativePath] = metadata;
+  }
+  return next;
 }

@@ -23,7 +23,15 @@ use tauri::{Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 struct InitialSession {
     root_dir: String,
     files: Vec<String>,
+    file_metadata: Vec<MarkdownFileMetadata>,
     selected_file: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+struct MarkdownFileMetadata {
+    relative_path: String,
+    modified_at: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -47,6 +55,7 @@ struct SessionState {
     root_dir: PathBuf,
     canonical_root_dir: PathBuf,
     files: Vec<String>,
+    file_metadata: HashMap<String, MarkdownFileMetadata>,
     selected_file: Option<String>,
 }
 
@@ -57,7 +66,7 @@ struct AppState {
 }
 
 enum ScanEntry {
-    File(String),
+    File(MarkdownFileMetadata),
     Skipped(String),
 }
 
@@ -80,6 +89,7 @@ enum ScanStatus {
 #[serde(rename_all = "camelCase")]
 struct ScanProgressPayload {
     files: Vec<String>,
+    file_metadata: Vec<MarkdownFileMetadata>,
     selected_file: Option<String>,
     status: ScanStatus,
     skipped_paths: Vec<String>,
@@ -111,6 +121,7 @@ fn get_initial_session(
     Ok(InitialSession {
         root_dir: session.root_dir.to_string_lossy().to_string(),
         files: session.files.clone(),
+        file_metadata: metadata_for_files(&session.files, &session.file_metadata),
         selected_file: session.selected_file.clone(),
     })
 }
@@ -129,8 +140,17 @@ fn refresh_session(
         .get_mut(window.label())
         .ok_or_else(|| format!("no session for window {}", window.label()))?;
 
-    let mut files = collect_markdown_files(&session.root_dir, &session.canonical_root_dir)?;
-    files.sort();
+    let mut file_entries =
+        collect_markdown_file_entries(&session.root_dir, &session.canonical_root_dir)?;
+    file_entries.sort_by(|left, right| left.relative_path.cmp(&right.relative_path));
+    let files = file_entries
+        .iter()
+        .map(|metadata| metadata.relative_path.clone())
+        .collect::<Vec<_>>();
+    let file_metadata = file_entries
+        .into_iter()
+        .map(|metadata| (metadata.relative_path.clone(), metadata))
+        .collect::<HashMap<_, _>>();
 
     let selected_file = match &session.selected_file {
         Some(current) if files.iter().any(|entry| entry == current) => Some(current.clone()),
@@ -138,10 +158,12 @@ fn refresh_session(
     };
 
     session.files = files.clone();
+    session.file_metadata = file_metadata.clone();
     session.selected_file = selected_file.clone();
 
     Ok(InitialSession {
         root_dir: session.root_dir.to_string_lossy().to_string(),
+        file_metadata: metadata_for_files(&files, &file_metadata),
         files,
         selected_file,
     })
@@ -206,6 +228,7 @@ pub fn run() {
         root_dir: initial_root_dir.clone(),
         canonical_root_dir: initial_root_dir.clone(),
         files: Vec::new(),
+        file_metadata: HashMap::new(),
         selected_file: None,
     };
 
@@ -275,6 +298,7 @@ fn populate_session_async(
         SCAN_PROGRESS_EVENT,
         ScanProgressPayload {
             files: Vec::new(),
+            file_metadata: Vec::new(),
             selected_file: None,
             status: ScanStatus::Scanning,
             skipped_paths: Vec::new(),
@@ -283,14 +307,18 @@ fn populate_session_async(
     );
 
     let mut files = Vec::<String>::new();
+    let mut file_metadata = HashMap::<String, MarkdownFileMetadata>::new();
     let mut pending_files = Vec::<String>::new();
+    let mut pending_file_metadata = Vec::<MarkdownFileMetadata>::new();
     let mut skipped_paths = Vec::<String>::new();
     let mut pending_skipped_paths = Vec::<String>::new();
     let mut selected_file = None::<String>;
 
     let flush_progress = |app_handle: &tauri::AppHandle,
                           files: &mut Vec<String>,
+                          file_metadata: &mut HashMap<String, MarkdownFileMetadata>,
                           pending_files: &mut Vec<String>,
+                          pending_file_metadata: &mut Vec<MarkdownFileMetadata>,
                           pending_skipped_paths: &mut Vec<String>,
                           selected_file: &mut Option<String>| {
         if pending_files.is_empty() && pending_skipped_paths.is_empty() {
@@ -313,15 +341,19 @@ fn populate_session_async(
             let mut sessions = state.sessions.lock().expect("sessions lock poisoned");
             if let Some(session) = sessions.get_mut(label) {
                 merge_sorted_unique(&mut session.files, pending_files);
+                merge_metadata(&mut session.file_metadata, pending_file_metadata);
                 session.selected_file = selected_file.clone();
             }
         }
 
         merge_sorted_unique(files, pending_files);
+        merge_metadata(file_metadata, pending_file_metadata);
 
         let emitted_files = pending_files.clone();
+        let emitted_file_metadata = pending_file_metadata.clone();
         let emitted_skipped_paths = pending_skipped_paths.clone();
         pending_files.clear();
+        pending_file_metadata.clear();
         pending_skipped_paths.clear();
 
         let _ = app_handle.emit_to(
@@ -329,6 +361,7 @@ fn populate_session_async(
             SCAN_PROGRESS_EVENT,
             ScanProgressPayload {
                 files: emitted_files,
+                file_metadata: emitted_file_metadata,
                 selected_file: selected_file.clone(),
                 status: ScanStatus::Scanning,
                 skipped_paths: emitted_skipped_paths,
@@ -339,7 +372,10 @@ fn populate_session_async(
 
     let scan_result = visit_dir_streaming(&root_dir, &root_dir, &mut |entry| {
         match entry {
-            ScanEntry::File(relative) => pending_files.push(relative),
+            ScanEntry::File(metadata) => {
+                pending_files.push(metadata.relative_path.clone());
+                pending_file_metadata.push(metadata);
+            }
             ScanEntry::Skipped(skipped) => {
                 skipped_paths.push(skipped.clone());
                 pending_skipped_paths.push(skipped);
@@ -351,7 +387,9 @@ fn populate_session_async(
             flush_progress(
                 app_handle,
                 &mut files,
+                &mut file_metadata,
                 &mut pending_files,
+                &mut pending_file_metadata,
                 &mut pending_skipped_paths,
                 &mut selected_file,
             );
@@ -361,7 +399,9 @@ fn populate_session_async(
     flush_progress(
         app_handle,
         &mut files,
+        &mut file_metadata,
         &mut pending_files,
+        &mut pending_file_metadata,
         &mut pending_skipped_paths,
         &mut selected_file,
     );
@@ -391,6 +431,7 @@ fn populate_session_async(
         let mut sessions = state.sessions.lock().expect("sessions lock poisoned");
         if let Some(session) = sessions.get_mut(label) {
             session.files = files.clone();
+            session.file_metadata = file_metadata.clone();
             session.selected_file = selected_file.clone();
         }
     }
@@ -399,6 +440,7 @@ fn populate_session_async(
         label,
         SCAN_PROGRESS_EVENT,
         ScanProgressPayload {
+            file_metadata: metadata_for_files(&files, &file_metadata),
             files,
             selected_file,
             status: final_status,
@@ -457,6 +499,7 @@ fn handle_new_instance(app: &tauri::AppHandle, argv: Vec<String>, cwd: String) {
                 root_dir: root_dir.clone(),
                 canonical_root_dir: root_dir.clone(),
                 files: Vec::new(),
+                file_metadata: HashMap::new(),
                 selected_file: None,
             },
         );
@@ -744,10 +787,23 @@ fn dedupe_paths(paths: Vec<PathBuf>) -> Vec<PathBuf> {
 // File scanning
 // ---------------------------------------------------------------------------
 
+#[cfg(test)]
 fn collect_markdown_files(
     root_dir: &Path,
     canonical_root_dir: &Path,
 ) -> Result<Vec<String>, String> {
+    let mut files = collect_markdown_file_entries(root_dir, canonical_root_dir)?
+        .into_iter()
+        .map(|metadata| metadata.relative_path)
+        .collect::<Vec<_>>();
+    files.sort();
+    Ok(files)
+}
+
+fn collect_markdown_file_entries(
+    root_dir: &Path,
+    canonical_root_dir: &Path,
+) -> Result<Vec<MarkdownFileMetadata>, String> {
     let mut files = Vec::new();
     visit_dir(root_dir, canonical_root_dir, root_dir, &mut files)?;
     Ok(files)
@@ -757,7 +813,7 @@ fn visit_dir(
     root_dir: &Path,
     canonical_root_dir: &Path,
     directory: &Path,
-    files: &mut Vec<String>,
+    files: &mut Vec<MarkdownFileMetadata>,
 ) -> Result<(), String> {
     let entries = match fs::read_dir(directory) {
         Ok(entries) => entries,
@@ -786,7 +842,7 @@ fn visit_dir(
 
         if is_markdown_file(&path) && canonical_path_is_inside_root(canonical_root_dir, &path) {
             if let Some(relative) = path_to_relative(root_dir, &path) {
-                files.push(relative);
+                files.push(markdown_file_metadata(relative, &path));
             }
         }
     }
@@ -837,12 +893,42 @@ fn visit_dir_streaming(
 
         if is_markdown_file(&path) && canonical_path_is_inside_root(root_dir, &path) {
             if let Some(relative) = path_to_relative(root_dir, &path) {
-                on_entry(ScanEntry::File(relative));
+                on_entry(ScanEntry::File(markdown_file_metadata(relative, &path)));
             }
         }
     }
 
     Ok(())
+}
+
+fn markdown_file_metadata(relative_path: String, path: &Path) -> MarkdownFileMetadata {
+    MarkdownFileMetadata {
+        relative_path,
+        modified_at: fs::metadata(path)
+            .ok()
+            .and_then(|metadata| metadata.modified().ok())
+            .and_then(|modified| modified.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|duration| duration.as_millis() as u64),
+    }
+}
+
+fn merge_metadata(
+    target: &mut HashMap<String, MarkdownFileMetadata>,
+    incoming: &[MarkdownFileMetadata],
+) {
+    for metadata in incoming {
+        target.insert(metadata.relative_path.clone(), metadata.clone());
+    }
+}
+
+fn metadata_for_files(
+    files: &[String],
+    metadata: &HashMap<String, MarkdownFileMetadata>,
+) -> Vec<MarkdownFileMetadata> {
+    files
+        .iter()
+        .filter_map(|path| metadata.get(path).cloned())
+        .collect()
 }
 
 fn merge_sorted_unique(target: &mut Vec<String>, incoming: &[String]) {
@@ -1064,7 +1150,7 @@ mod tests {
         let mut skipped = Vec::new();
         let canonical_root = temp.canonical_path();
         visit_dir_streaming(&canonical_root, &canonical_root, &mut |entry| match entry {
-            ScanEntry::File(path) => files.push(path),
+            ScanEntry::File(metadata) => files.push(metadata.relative_path),
             ScanEntry::Skipped(path) => skipped.push(path),
         })
         .expect("streaming scan should succeed");
@@ -1074,6 +1160,24 @@ mod tests {
 
         assert_eq!(files, vec!["visible.md"]);
         assert_eq!(skipped, vec![".git"]);
+    }
+
+    #[test]
+    fn collect_markdown_file_entries_includes_modified_time_without_content() {
+        let temp = TestDir::new();
+        fs::write(
+            temp.path.join("visible.md"),
+            "# Secret content stays on disk\n",
+        )
+        .expect("markdown file should be written");
+
+        let canonical_root = temp.canonical_path();
+        let files = collect_markdown_file_entries(&canonical_root, &canonical_root)
+            .expect("scan should succeed");
+
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].relative_path, "visible.md");
+        assert!(files[0].modified_at.is_some());
     }
 
     #[test]
@@ -1137,7 +1241,8 @@ mod tests {
         let event = Event::new(EventKind::Modify(ModifyKind::Data(DataChange::Content)))
             .add_path(temp.path.join("notes/a.md"));
 
-        let payload = classify_event(&event, &temp.path).expect("markdown modify should be reported");
+        let payload =
+            classify_event(&event, &temp.path).expect("markdown modify should be reported");
 
         assert_eq!(payload.changed_paths, vec!["notes/a.md"]);
         assert!(!payload.tree_changed);
@@ -1146,15 +1251,20 @@ mod tests {
     #[test]
     fn classify_event_marks_markdown_create_remove_and_rename_as_tree_changes() {
         let temp = TestDir::new();
-        let create_event = Event::new(EventKind::Create(CreateKind::File)).add_path(temp.path.join("created.md"));
-        let remove_event = Event::new(EventKind::Remove(RemoveKind::File)).add_path(temp.path.join("removed.md"));
+        let create_event =
+            Event::new(EventKind::Create(CreateKind::File)).add_path(temp.path.join("created.md"));
+        let remove_event =
+            Event::new(EventKind::Remove(RemoveKind::File)).add_path(temp.path.join("removed.md"));
         let rename_event = Event::new(EventKind::Modify(ModifyKind::Name(RenameMode::Both)))
             .add_path(temp.path.join("old.md"))
             .add_path(temp.path.join("new.md"));
 
-        let create_payload = classify_event(&create_event, &temp.path).expect("markdown create should be reported");
-        let remove_payload = classify_event(&remove_event, &temp.path).expect("markdown remove should be reported");
-        let rename_payload = classify_event(&rename_event, &temp.path).expect("markdown rename should be reported");
+        let create_payload =
+            classify_event(&create_event, &temp.path).expect("markdown create should be reported");
+        let remove_payload =
+            classify_event(&remove_event, &temp.path).expect("markdown remove should be reported");
+        let rename_payload =
+            classify_event(&rename_event, &temp.path).expect("markdown rename should be reported");
 
         assert!(create_payload.tree_changed);
         assert_eq!(create_payload.changed_paths, vec!["created.md"]);
@@ -1206,8 +1316,11 @@ mod tests {
         let text_file = temp.path.join("notes.txt");
         fs::write(&text_file, "not markdown\n").expect("text file should be written");
 
-        let error = resolve_target_from_args(Some(text_file.to_str().expect("path should be utf-8")), &temp.path)
-            .expect_err("non-markdown file should be rejected");
+        let error = resolve_target_from_args(
+            Some(text_file.to_str().expect("path should be utf-8")),
+            &temp.path,
+        )
+        .expect_err("non-markdown file should be rejected");
 
         assert!(error.contains("launch target must be a directory or markdown file"));
     }
@@ -1218,8 +1331,14 @@ mod tests {
         let document = temp.path.join("guide.md");
         fs::write(&document, "# Guide\n").expect("markdown file should be written");
 
-        let resolved = resolve_arg_path("guide.md", &temp.path).expect("relative path should resolve");
+        let resolved =
+            resolve_arg_path("guide.md", &temp.path).expect("relative path should resolve");
 
-        assert_eq!(resolved, document.canonicalize().expect("document should canonicalize"));
+        assert_eq!(
+            resolved,
+            document
+                .canonicalize()
+                .expect("document should canonicalize")
+        );
     }
 }
