@@ -103,6 +103,7 @@ pnpm dev
 ## 검증
 
 ```bash
+pnpm test
 pnpm typecheck
 cargo check --manifest-path src-tauri/Cargo.toml
 pnpm build
