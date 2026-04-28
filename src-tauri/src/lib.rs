@@ -33,6 +33,7 @@ struct InitialSession {
 struct MarkdownFileMetadata {
     relative_path: String,
     modified_at: Option<u64>,
+    size_bytes: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1172,13 +1173,16 @@ fn upsert_file_metadata(target: &mut Vec<MarkdownFileMetadata>, metadata: Markdo
 }
 
 fn markdown_file_metadata(path: &Path, relative_path: &str) -> MarkdownFileMetadata {
+    let metadata = fs::metadata(path).ok();
+
     MarkdownFileMetadata {
         relative_path: relative_path.to_string(),
-        modified_at: fs::metadata(path)
-            .and_then(|metadata| metadata.modified())
-            .ok()
+        modified_at: metadata
+            .as_ref()
+            .and_then(|metadata| metadata.modified().ok())
             .and_then(|modified| modified.duration_since(UNIX_EPOCH).ok())
             .map(|duration| duration.as_millis() as u64),
+        size_bytes: metadata.map(|metadata| metadata.len()),
     }
 }
 
@@ -1393,7 +1397,7 @@ mod tests {
     }
 
     #[test]
-    fn markdown_file_metadata_contains_path_and_modified_time_without_content() {
+    fn markdown_file_metadata_contains_path_modified_time_and_size_without_content() {
         let temp = TestDir::new();
         let file_path = temp.path.join("note.md");
         fs::write(&file_path, "# Secret content\n").expect("markdown file should be written");
@@ -1403,6 +1407,7 @@ mod tests {
 
         assert_eq!(metadata.relative_path, "note.md");
         assert!(metadata.modified_at.is_some());
+        assert_eq!(metadata.size_bytes, Some("# Secret content\n".len() as u64));
         assert_eq!(
             json.get("relativePath").and_then(|value| value.as_str()),
             Some("note.md")
@@ -1411,6 +1416,10 @@ mod tests {
             .get("modifiedAt")
             .and_then(|value| value.as_u64())
             .is_some());
+        assert_eq!(
+            json.get("sizeBytes").and_then(|value| value.as_u64()),
+            Some("# Secret content\n".len() as u64)
+        );
         assert!(json.get("content").is_none());
     }
 
@@ -1433,5 +1442,6 @@ mod tests {
         assert_eq!(metadata.len(), 1);
         assert_eq!(metadata[0].relative_path, "README.md");
         assert!(metadata[0].modified_at.is_some());
+        assert_eq!(metadata[0].size_bytes, Some("# Readme\n".len() as u64));
     }
 }

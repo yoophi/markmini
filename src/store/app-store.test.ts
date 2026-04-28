@@ -21,7 +21,7 @@ const heading: HeadingItem = { depth: 1, text: "Saved", id: "saved" };
 function markdownDocument(relativePath: string, content: string, modifiedAt = 100): MarkdownDocument {
   return {
     relativePath,
-    fileMetadata: { relativePath, modifiedAt },
+    fileMetadata: { relativePath, modifiedAt, sizeBytes: content.length },
     content,
     headings: [heading],
   };
@@ -114,8 +114,8 @@ describe("app store document safety flows", () => {
       rootDir: "/vault",
       files: ["notes/a.md", "notes/b.md"],
       fileMetadata: [
-        { relativePath: "notes/a.md", modifiedAt: 100 },
-        { relativePath: "notes/b.md", modifiedAt: 200 },
+        { relativePath: "notes/a.md", modifiedAt: 100, sizeBytes: 10 },
+        { relativePath: "notes/b.md", modifiedAt: 200, sizeBytes: 20 },
       ],
       selectedFile: null,
     });
@@ -124,8 +124,8 @@ describe("app store document safety flows", () => {
 
     expect(useAppStore.getState().documentSortMode).toBe("modified");
     expect(useAppStore.getState().fileMetadata).toEqual({
-      "notes/a.md": { relativePath: "notes/a.md", modifiedAt: 100 },
-      "notes/b.md": { relativePath: "notes/b.md", modifiedAt: 200 },
+      "notes/a.md": { relativePath: "notes/a.md", modifiedAt: 100, sizeBytes: 10 },
+      "notes/b.md": { relativePath: "notes/b.md", modifiedAt: 200, sizeBytes: 20 },
     });
     expect(useAppStore.getState().favoriteDocuments).toEqual(["notes/b.md", "notes/a.md"]);
     expect(useAppStore.getState().recentDocuments).toEqual(["notes/a.md", "notes/b.md"]);
@@ -168,7 +168,7 @@ describe("app store document safety flows", () => {
       error: null,
     });
     expect(useAppStore.getState().successMessage).toBe("저장했습니다: notes/a.md");
-    expect(useAppStore.getState().fileMetadata["notes/a.md"]).toEqual({ relativePath: "notes/a.md", modifiedAt: 200 });
+    expect(useAppStore.getState().fileMetadata["notes/a.md"]).toEqual({ relativePath: "notes/a.md", modifiedAt: 200, sizeBytes: "# Draft\n".length });
   });
 
   it("does not save over an unresolved external change", async () => {

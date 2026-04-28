@@ -14,6 +14,7 @@ export interface InitialSession {
 export interface MarkdownFileMetadata {
   relativePath: string;
   modifiedAt: number | null;
+  sizeBytes: number | null;
 }
 
 export type ScanStatus = "idle" | "scanning" | "completed" | "error";

@@ -151,8 +151,8 @@ describe("FileTree search", () => {
     renderFileTree({
       files: ["old.md", "new.md"],
       fileMetadata: {
-        "old.md": { relativePath: "old.md", modifiedAt: 100 },
-        "new.md": { relativePath: "new.md", modifiedAt: 200 },
+        "old.md": { relativePath: "old.md", modifiedAt: 100, sizeBytes: 10 },
+        "new.md": { relativePath: "new.md", modifiedAt: 200, sizeBytes: 20 },
       },
       sortMode: "modified",
     });
@@ -164,7 +164,7 @@ describe("FileTree search", () => {
     renderFileTree({
       files: ["new.md"],
       fileMetadata: {
-        "new.md": { relativePath: "new.md", modifiedAt: Date.UTC(2026, 0, 2, 3, 4) },
+        "new.md": { relativePath: "new.md", modifiedAt: Date.UTC(2026, 0, 2, 3, 4), sizeBytes: 20 },
       },
       sortMode: "modified",
     });
