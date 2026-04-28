@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Edit3, Eye, FilePenLine, FilePlus2, FileText, FolderTree, Menu, RefreshCcw, Save, TextSearch, Trash2 } from "lucide-react";
+import { Edit3, Eye, FilePenLine, FilePlus2, FileText, FolderTree, Menu, RefreshCcw, Save, Star, TextSearch, Trash2 } from "lucide-react";
 
 import { FileTree } from "@/components/file-tree";
 import { MarkdownView } from "@/components/markdown-view";
@@ -35,12 +35,14 @@ function App() {
   const scanSkippedPaths = useAppStore((state) => state.scanSkippedPaths);
   const scanError = useAppStore((state) => state.scanError);
   const selectedFile = useAppStore((state) => state.selectedFile);
+  const favoriteDocuments = useAppStore((state) => state.favoriteDocuments);
   const recentDocuments = useAppStore((state) => state.recentDocuments);
   const document = useAppStore((state) => state.document);
   const isSidebarOpen = useAppStore((state) => state.isSidebarOpen);
   const setSidebarOpen = useAppStore((state) => state.setSidebarOpen);
   const documentSearchQuery = useAppStore((state) => state.documentSearchQuery);
   const setDocumentSearchQuery = useAppStore((state) => state.setDocumentSearchQuery);
+  const toggleFavoriteDocument = useAppStore((state) => state.toggleFavoriteDocument);
 
   const [isCreateDialogOpen, setCreateDialogOpen] = useState(false);
   const [isRenameDialogOpen, setRenameDialogOpen] = useState(false);
@@ -109,6 +111,7 @@ function App() {
 
   const selectedSegments = selectedFile?.split("/") ?? [];
   const selectedLabel = selectedSegments[selectedSegments.length - 1] ?? "문서를 선택하세요";
+  const selectedFileIsFavorite = Boolean(selectedFile && favoriteDocuments.includes(selectedFile));
   const deleteDescription = useMemo(() => {
     if (!selectedFile) {
       return "선택된 문서가 없습니다.";
@@ -259,6 +262,7 @@ function App() {
                         scanState={scanState}
                         skippedCount={scanSkippedPaths.length}
                         selectedFile={selectedFile}
+                        favoriteDocuments={favoriteDocuments}
                         recentDocuments={recentDocuments}
                         searchQuery={documentSearchQuery}
                         onSearchQueryChange={setDocumentSearchQuery}
@@ -304,6 +308,7 @@ function App() {
                     scanState={scanState}
                     skippedCount={scanSkippedPaths.length}
                     selectedFile={selectedFile}
+                    favoriteDocuments={favoriteDocuments}
                     recentDocuments={recentDocuments}
                     searchQuery={documentSearchQuery}
                     onSearchQueryChange={setDocumentSearchQuery}
@@ -327,6 +332,15 @@ function App() {
                         </div>
                         {document.state === "ready" ? (
                           <div className="flex shrink-0 items-center gap-2">
+                            <Button
+                              variant={selectedFileIsFavorite ? "default" : "outline"}
+                              size="sm"
+                              disabled={!selectedFile}
+                              onClick={() => selectedFile && toggleFavoriteDocument(selectedFile)}
+                            >
+                              <Star className="h-4 w-4" />
+                              {selectedFileIsFavorite ? "즐겨찾기 해제" : "즐겨찾기"}
+                            </Button>
                             <Button
                               variant="outline"
                               size="sm"

@@ -38,6 +38,7 @@ function resetStore() {
     scanSkippedPathSet: new Set(),
     scanError: null,
     selectedFile: null,
+    favoriteDocuments: [],
     recentDocuments: [],
     documentLoadToken: 0,
     isSidebarOpen: false,
@@ -73,6 +74,17 @@ describe("app store document safety flows", () => {
     expect(useAppStore.getState().documentSearchQuery).toBe("guide");
   });
 
+  it("toggles favorite documents and persists only relative paths", () => {
+    useAppStore.setState({ rootDir: "/vault" });
+
+    useAppStore.getState().toggleFavoriteDocument("notes/a.md");
+    useAppStore.getState().toggleFavoriteDocument("notes/b.md");
+    useAppStore.getState().toggleFavoriteDocument("notes/a.md");
+
+    expect(useAppStore.getState().favoriteDocuments).toEqual(["notes/b.md"]);
+    expect(JSON.parse(localStorage.getItem("markmini:favorite-documents:/vault") ?? "[]")).toEqual(["notes/b.md"]);
+  });
+
   it("tracks recently opened documents without duplicates and keeps the list short", async () => {
     vi.mocked(readMarkdownFile).mockImplementation(async (path) => markdownDocument(path, `# ${path}\n`));
 
@@ -83,7 +95,8 @@ describe("app store document safety flows", () => {
     expect(useAppStore.getState().recentDocuments).toEqual(["c.md", "f.md", "e.md", "d.md", "b.md"]);
   });
 
-  it("restores persisted recent documents for the current root and drops stale entries", async () => {
+  it("restores persisted favorite and recent documents for the current root and drops stale entries", async () => {
+    localStorage.setItem("markmini:favorite-documents:/vault", JSON.stringify(["notes/b.md", "missing.md", "notes/a.md"]));
     localStorage.setItem(
       "markmini:recent-documents:/vault",
       JSON.stringify(["notes/a.md", "missing.md", "notes/b.md", "notes/a.md"]),
@@ -96,7 +109,9 @@ describe("app store document safety flows", () => {
 
     await useAppStore.getState().bootstrap();
 
+    expect(useAppStore.getState().favoriteDocuments).toEqual(["notes/b.md", "notes/a.md"]);
     expect(useAppStore.getState().recentDocuments).toEqual(["notes/a.md", "notes/b.md"]);
+    expect(JSON.parse(localStorage.getItem("markmini:favorite-documents:/vault") ?? "[]")).toEqual(["notes/b.md", "notes/a.md"]);
     expect(JSON.parse(localStorage.getItem("markmini:recent-documents:/vault") ?? "[]")).toEqual(["notes/a.md", "notes/b.md"]);
   });
 

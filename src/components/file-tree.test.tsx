@@ -22,6 +22,7 @@ function renderFileTree(options: Partial<React.ComponentProps<typeof FileTree>> 
         scanState="completed"
         skippedCount={0}
         selectedFile="docs/guide.md"
+        favoriteDocuments={[]}
         recentDocuments={[]}
         onSelect={vi.fn()}
         {...options}
@@ -38,6 +39,20 @@ function renderFileTree(options: Partial<React.ComponentProps<typeof FileTree>> 
 }
 
 describe("FileTree search", () => {
+  it("shows favorite documents above recent documents and opens them through the normal select flow", () => {
+    const onSelect = vi.fn();
+    renderFileTree({ favoriteDocuments: ["projects/markmini/plan.md", "missing.md"], recentDocuments: ["notes/today.md"], onSelect });
+
+    expect(screen.queryByText("Favorites")).not.toBeNull();
+    expect(screen.queryByText("Recent")).not.toBeNull();
+    expect(screen.queryByText("projects/markmini/plan.md")).not.toBeNull();
+    expect(screen.queryByText("missing.md")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: /plan/i }));
+
+    expect(onSelect).toHaveBeenCalledWith("projects/markmini/plan.md");
+  });
+
   it("shows recent documents and opens them through the normal select flow", () => {
     const onSelect = vi.fn();
     renderFileTree({ recentDocuments: ["notes/today.md", "missing.md"], onSelect });

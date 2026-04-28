@@ -12,6 +12,7 @@ interface FileTreeProps {
   scanState: ScanStatus;
   skippedCount: number;
   selectedFile: string | null;
+  favoriteDocuments: string[];
   recentDocuments: string[];
   searchQuery: string;
   onSearchQueryChange: (query: string) => void;
@@ -23,6 +24,7 @@ export function FileTree({
   scanState,
   skippedCount,
   selectedFile,
+  favoriteDocuments,
   recentDocuments,
   searchQuery,
   onSearchQueryChange,
@@ -31,6 +33,7 @@ export function FileTree({
   const normalizedSearchQuery = searchQuery.trim().toLocaleLowerCase();
   const filteredFiles = useMemo(() => filterFiles(files, normalizedSearchQuery), [files, normalizedSearchQuery]);
   const tree = useMemo(() => buildTree(filteredFiles), [filteredFiles]);
+  const visibleFavoriteDocuments = useMemo(() => favoriteDocuments.filter((file) => files.includes(file)), [favoriteDocuments, files]);
   const visibleRecentDocuments = useMemo(() => recentDocuments.filter((file) => files.includes(file)), [files, recentDocuments]);
   const directoryPaths = useMemo(() => collectDirectoryPaths(tree), [tree]);
   const selectedFileIsFilteredOut = Boolean(normalizedSearchQuery && selectedFile && !filteredFiles.includes(selectedFile));
@@ -238,33 +241,11 @@ export function FileTree({
                 현재 선택된 문서는 검색 결과에 없습니다. 검색어를 지우면 다시 표시됩니다.
               </div>
             ) : null}
+            {visibleFavoriteDocuments.length > 0 ? (
+              <DocumentShortcutSection title="Favorites" documents={visibleFavoriteDocuments} selectedFile={selectedFile} onSelect={onSelect} />
+            ) : null}
             {visibleRecentDocuments.length > 0 ? (
-              <div className="mb-3 rounded-md border border-border bg-muted/30 p-2">
-                <p className="px-1 pb-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">Recent</p>
-                <div className="space-y-0.5">
-                  {visibleRecentDocuments.map((path) => {
-                    const isSelected = selectedFile === path;
-                    return (
-                      <button
-                        key={path}
-                        type="button"
-                        aria-current={isSelected ? "page" : undefined}
-                        onClick={() => onSelect(path)}
-                        className={cn(
-                          "flex min-h-8 w-full items-center gap-2 rounded px-2 py-1 text-left text-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
-                          isSelected ? "bg-primary text-primary-foreground" : "text-foreground hover:bg-accent hover:text-accent-foreground",
-                        )}
-                      >
-                        <FileText className={cn("h-4 w-4 shrink-0", isSelected ? "opacity-90" : "text-muted-foreground")} />
-                        <span className="min-w-0 flex-1 truncate">
-                          <span className="block truncate">{fileLabel(path)}</span>
-                          <span className={cn("block truncate text-xs", isSelected ? "text-primary-foreground/75" : "text-muted-foreground")}>{path}</span>
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
+              <DocumentShortcutSection title="Recent" documents={visibleRecentDocuments} selectedFile={selectedFile} onSelect={onSelect} />
             ) : null}
             {tree.length === 0 ? (
               <div className="rounded-md border border-dashed border-border px-3 py-8 text-center">
@@ -309,6 +290,47 @@ interface TreeNodeData {
   path: string;
   kind: "directory" | "file";
   children: TreeNodeData[];
+}
+
+function DocumentShortcutSection({
+  title,
+  documents,
+  selectedFile,
+  onSelect,
+}: {
+  title: string;
+  documents: string[];
+  selectedFile: string | null;
+  onSelect: (relativePath: string) => void;
+}) {
+  return (
+    <div className="mb-3 rounded-md border border-border bg-muted/30 p-2">
+      <p className="px-1 pb-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">{title}</p>
+      <div className="space-y-0.5">
+        {documents.map((path) => {
+          const isSelected = selectedFile === path;
+          return (
+            <button
+              key={path}
+              type="button"
+              aria-current={isSelected ? "page" : undefined}
+              onClick={() => onSelect(path)}
+              className={cn(
+                "flex min-h-8 w-full items-center gap-2 rounded px-2 py-1 text-left text-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
+                isSelected ? "bg-primary text-primary-foreground" : "text-foreground hover:bg-accent hover:text-accent-foreground",
+              )}
+            >
+              <FileText className={cn("h-4 w-4 shrink-0", isSelected ? "opacity-90" : "text-muted-foreground")} />
+              <span className="min-w-0 flex-1 truncate">
+                <span className="block truncate">{fileLabel(path)}</span>
+                <span className={cn("block truncate text-xs", isSelected ? "text-primary-foreground/75" : "text-muted-foreground")}>{path}</span>
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
 }
 
 function TreeNode({

@@ -28,6 +28,7 @@ interface AppStore {
   scanSkippedPathSet: ReadonlySet<string>;
   scanError: string | null;
   selectedFile: string | null;
+  favoriteDocuments: string[];
   recentDocuments: string[];
   documentLoadToken: number;
   isSidebarOpen: boolean;
@@ -49,6 +50,7 @@ interface AppStore {
   };
   setSidebarOpen: (open: boolean) => void;
   setDocumentSearchQuery: (query: string) => void;
+  toggleFavoriteDocument: (relativePath: string) => void;
   clearSuccessMessage: () => void;
   applyScanProgress: (payload: ScanProgressPayload) => Promise<void>;
   bootstrap: () => Promise<void>;
@@ -75,6 +77,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
   scanSkippedPathSet: new Set(),
   scanError: null,
   selectedFile: null,
+  favoriteDocuments: [],
   recentDocuments: [],
   documentLoadToken: 0,
   isSidebarOpen: false,
@@ -84,6 +87,15 @@ export const useAppStore = create<AppStore>((set, get) => ({
   document: createEmptyDocument(),
   setSidebarOpen: (open) => set({ isSidebarOpen: open }),
   setDocumentSearchQuery: (query) => set({ documentSearchQuery: query }),
+  toggleFavoriteDocument: (relativePath) => {
+    set((state) => {
+      const favoriteDocuments = state.favoriteDocuments.includes(relativePath)
+        ? state.favoriteDocuments.filter((entry) => entry !== relativePath)
+        : [relativePath, ...state.favoriteDocuments].slice(0, 20);
+      persistFavoriteDocuments(state.rootDir, favoriteDocuments);
+      return { favoriteDocuments };
+    });
+  },
   clearSuccessMessage: () => set({ successMessage: null }),
   applyScanProgress: async (payload) => {
     const state = get();
@@ -127,12 +139,14 @@ export const useAppStore = create<AppStore>((set, get) => ({
     try {
       const session = await getInitialSession();
       const { values: files, valueSet: fileSet } = mergeSortedUnique([], new Set(), session.files);
+      const favoriteDocuments = loadFavoriteDocuments(session.rootDir, fileSet);
       const recentDocuments = loadRecentDocuments(session.rootDir, fileSet);
       set({
         bootstrapState: "ready",
         rootDir: session.rootDir,
         files,
         fileSet,
+        favoriteDocuments,
         recentDocuments,
         selectedFile: session.selectedFile,
       });
@@ -243,15 +257,20 @@ export const useAppStore = create<AppStore>((set, get) => ({
         .concat(result.document.relativePath)
         .sort((a, b) => a.localeCompare(b));
       set((state) => {
+        const favoriteDocuments = state.favoriteDocuments.includes(result.oldRelativePath)
+          ? [result.document.relativePath, ...state.favoriteDocuments.filter((entry) => entry !== result.oldRelativePath)]
+          : state.favoriteDocuments;
         const recentDocuments = addRecentDocument(
           state.recentDocuments.filter((entry) => entry !== result.oldRelativePath),
           result.document.relativePath,
         );
+        persistFavoriteDocuments(state.rootDir, favoriteDocuments);
         persistRecentDocuments(state.rootDir, recentDocuments);
         return {
           files,
           fileSet: new Set(files),
           selectedFile: result.document.relativePath,
+          favoriteDocuments,
           recentDocuments,
           successMessage: `문서 이름을 변경했습니다: ${result.document.relativePath}`,
           successMessageId: state.successMessageId + 1,
@@ -278,12 +297,15 @@ export const useAppStore = create<AppStore>((set, get) => ({
       const result = await deleteMarkdownFile(current);
       const files = state.files.filter((entry) => entry !== result.deletedRelativePath);
       set((state) => {
+        const favoriteDocuments = state.favoriteDocuments.filter((entry) => entry !== result.deletedRelativePath);
         const recentDocuments = state.recentDocuments.filter((entry) => entry !== result.deletedRelativePath);
+        persistFavoriteDocuments(state.rootDir, favoriteDocuments);
         persistRecentDocuments(state.rootDir, recentDocuments);
         return {
           files,
           fileSet: new Set(files),
           selectedFile: result.nextSelectedFile,
+          favoriteDocuments,
           recentDocuments,
           successMessage: `문서를 삭제했습니다: ${result.deletedRelativePath}`,
           successMessageId: state.successMessageId + 1,
@@ -429,7 +451,9 @@ export const useAppStore = create<AppStore>((set, get) => ({
     try {
       const session = await refreshSession();
       const { values: files, valueSet: fileSet } = mergeSortedUnique([], new Set(), session.files);
+      const favoriteDocuments = previousState.favoriteDocuments.filter((entry) => fileSet.has(entry));
       const recentDocuments = previousState.recentDocuments.filter((entry) => fileSet.has(entry));
+      persistFavoriteDocuments(session.rootDir, favoriteDocuments);
       persistRecentDocuments(session.rootDir, recentDocuments);
       set({
         bootstrapState: "ready",
@@ -437,6 +461,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
         rootDir: session.rootDir,
         files,
         fileSet,
+        favoriteDocuments,
         recentDocuments,
         scanState: "completed",
         scanSkippedPaths: [],
@@ -535,8 +560,24 @@ function addRecentDocument(recentDocuments: string[], relativePath: string) {
   return [relativePath, ...recentDocuments.filter((entry) => entry !== relativePath)].slice(0, 5);
 }
 
+function loadFavoriteDocuments(rootDir: string, fileSet: ReadonlySet<string>) {
+  return loadStoredDocumentList(favoriteDocumentsStorageKey(rootDir), fileSet, 20);
+}
+
+function persistFavoriteDocuments(rootDir: string | null, favoriteDocuments: string[]) {
+  persistStoredDocumentList(rootDir, "favorite", favoriteDocuments, 20);
+}
+
 function loadRecentDocuments(rootDir: string, fileSet: ReadonlySet<string>) {
-  const stored = safeLocalStorageGet(recentDocumentsStorageKey(rootDir));
+  return loadStoredDocumentList(recentDocumentsStorageKey(rootDir), fileSet, 5);
+}
+
+function persistRecentDocuments(rootDir: string | null, recentDocuments: string[]) {
+  persistStoredDocumentList(rootDir, "recent", recentDocuments, 5);
+}
+
+function loadStoredDocumentList(key: string, fileSet: ReadonlySet<string>, limit: number) {
+  const stored = safeLocalStorageGet(key);
   if (!stored) {
     return [];
   }
@@ -547,21 +588,26 @@ function loadRecentDocuments(rootDir: string, fileSet: ReadonlySet<string>) {
       return [];
     }
 
-    const recentDocuments = parsed.filter((entry): entry is string => typeof entry === "string" && fileSet.has(entry));
-    const deduped = [...new Set(recentDocuments)].slice(0, 5);
-    persistRecentDocuments(rootDir, deduped);
+    const documentPaths = parsed.filter((entry): entry is string => typeof entry === "string" && fileSet.has(entry));
+    const deduped = [...new Set(documentPaths)].slice(0, limit);
+    safeLocalStorageSet(key, JSON.stringify(deduped));
     return deduped;
   } catch {
     return [];
   }
 }
 
-function persistRecentDocuments(rootDir: string | null, recentDocuments: string[]) {
+function persistStoredDocumentList(rootDir: string | null, kind: "favorite" | "recent", documents: string[], limit: number) {
   if (!rootDir) {
     return;
   }
 
-  safeLocalStorageSet(recentDocumentsStorageKey(rootDir), JSON.stringify(recentDocuments.slice(0, 5)));
+  const key = kind === "favorite" ? favoriteDocumentsStorageKey(rootDir) : recentDocumentsStorageKey(rootDir);
+  safeLocalStorageSet(key, JSON.stringify(documents.slice(0, limit)));
+}
+
+function favoriteDocumentsStorageKey(rootDir: string) {
+  return `markmini:favorite-documents:${rootDir}`;
 }
 
 function recentDocumentsStorageKey(rootDir: string) {
