@@ -25,10 +25,10 @@ function renderFileTree(options: Partial<React.ComponentProps<typeof FileTree>> 
         selectedFile="docs/guide.md"
         favoriteDocuments={[]}
         recentDocuments={[]}
+        sortMode="path"
         onSelect={vi.fn()}
         {...options}
         searchQuery={searchQuery}
-        sortMode="path"
         onSearchQueryChange={(query) => {
           setSearchQuery(query);
           options.onSearchQueryChange?.(query);
@@ -158,6 +158,24 @@ describe("FileTree search", () => {
     });
 
     expect(within(screen.getByRole("tree")).getAllByRole("treeitem")[0].textContent).toContain("new");
+  });
+
+  it("shows modified-time context when sorting by modified time", () => {
+    renderFileTree({
+      files: ["new.md"],
+      fileMetadata: {
+        "new.md": { relativePath: "new.md", modifiedAt: Date.UTC(2026, 0, 2, 3, 4) },
+      },
+      sortMode: "modified",
+    });
+
+    expect(screen.queryByText(/수정:/)).not.toBeNull();
+  });
+
+  it("handles missing modified-time metadata without crashing", () => {
+    renderFileTree({ files: ["unknown.md"], sortMode: "modified" });
+
+    expect(screen.queryByText("수정시간 없음")).not.toBeNull();
   });
 
   it("clears the search query with the clear button", () => {

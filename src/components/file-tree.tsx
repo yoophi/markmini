@@ -295,6 +295,8 @@ export function FileTree({
                     selectedFile={selectedFile}
                     onSelect={onSelect}
                     searchQuery={normalizedSearchQuery}
+                    modifiedAt={fileMetadata[node.path]?.modifiedAt ?? null}
+                    showModifiedTime={sortMode === "modified"}
                     depth={depth}
                     expanded={expandedPaths.has(node.path)}
                     focused={currentFocusPath === node.path}
@@ -364,6 +366,8 @@ function TreeNode({
   selectedFile,
   onSelect,
   searchQuery,
+  modifiedAt,
+  showModifiedTime,
   depth,
   expanded,
   focused,
@@ -374,6 +378,8 @@ function TreeNode({
   selectedFile: string | null;
   onSelect: (relativePath: string) => void;
   searchQuery: string;
+  modifiedAt: number | null;
+  showModifiedTime: boolean;
   depth: number;
   expanded: boolean;
   focused: boolean;
@@ -385,6 +391,7 @@ function TreeNode({
   const label = isDirectory ? node.name : fileLabel(node.path);
   const normalizedLabel = label.toLocaleLowerCase();
   const pathMatchesOnly = Boolean(searchQuery && !normalizedLabel.includes(searchQuery) && node.path.toLocaleLowerCase().includes(searchQuery));
+  const metadataContext = !isDirectory && showModifiedTime ? formatModifiedTime(modifiedAt) : null;
 
   if (node.kind === "directory") {
     return (
@@ -446,6 +453,10 @@ function TreeNode({
             <span className={cn("mt-0.5 block truncate text-xs", isSelected ? "text-primary-foreground/75" : "text-muted-foreground")}>
               {renderHighlightedText(node.path, searchQuery, isSelected)}
             </span>
+          ) : metadataContext ? (
+            <span className={cn("mt-0.5 block truncate text-xs", isSelected ? "text-primary-foreground/75" : "text-muted-foreground")}>
+              {metadataContext}
+            </span>
           ) : null}
         </span>
       </button>
@@ -476,6 +487,17 @@ function renderHighlightedText(text: string, normalizedSearchQuery: string, isSe
       {after}
     </>
   );
+}
+
+function formatModifiedTime(modifiedAt: number | null) {
+  if (!modifiedAt) {
+    return "수정시간 없음";
+  }
+
+  return `수정: ${new Intl.DateTimeFormat("ko-KR", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(new Date(modifiedAt))}`;
 }
 
 function treeNodeIndentClass(depth: number) {
