@@ -13,6 +13,7 @@ export type DocumentTreeSortMode = "name" | "path" | "modified";
 export const DOCUMENT_TREE_SORT_MODE_STORAGE_KEY = "markmini.documentTree.sortMode";
 
 interface FileTreeProps {
+  rootDir: string | null;
   files: string[];
   fileMetadata: Record<string, MarkdownFileMetadata>;
   scanState: ScanStatus;
@@ -21,9 +22,9 @@ interface FileTreeProps {
   onSelect: (relativePath: string) => void;
 }
 
-export function FileTree({ files, fileMetadata, scanState, skippedCount, selectedFile, onSelect }: FileTreeProps) {
+export function FileTree({ rootDir, files, fileMetadata, scanState, skippedCount, selectedFile, onSelect }: FileTreeProps) {
   const [searchQuery, setSearchQuery] = useState("");
-  const [sortMode, setSortMode] = useState<DocumentTreeSortMode>(readStoredSortMode);
+  const [sortMode, setSortMode] = useState<DocumentTreeSortMode>(() => readStoredSortMode(rootDir));
   const normalizedSearchQuery = searchQuery.trim().toLocaleLowerCase();
   const filteredFiles = useMemo(() => filterFiles(files, normalizedSearchQuery), [files, normalizedSearchQuery]);
   const tree = useMemo(() => buildTree(filteredFiles, sortMode, fileMetadata), [filteredFiles, fileMetadata, sortMode]);
@@ -35,8 +36,12 @@ export function FileTree({ files, fileMetadata, scanState, skippedCount, selecte
   const treeRef = useRef<HTMLUListElement | null>(null);
 
   useEffect(() => {
-    writeStoredSortMode(sortMode);
-  }, [sortMode]);
+    setSortMode(readStoredSortMode(rootDir));
+  }, [rootDir]);
+
+  useEffect(() => {
+    writeStoredSortMode(rootDir, sortMode);
+  }, [rootDir, sortMode]);
 
   useEffect(() => {
     setExpandedPaths((current) => {
@@ -408,27 +413,31 @@ export function filterFiles(files: string[], normalizedSearchQuery: string) {
   });
 }
 
-export function readStoredSortMode(): DocumentTreeSortMode {
+export function documentTreeSortModeStorageKey(rootDir: string | null) {
+  return rootDir ? `${DOCUMENT_TREE_SORT_MODE_STORAGE_KEY}:${rootDir}` : DOCUMENT_TREE_SORT_MODE_STORAGE_KEY;
+}
+
+export function readStoredSortMode(rootDir: string | null = null): DocumentTreeSortMode {
   if (typeof window === "undefined") {
     return "name";
   }
 
   try {
-    return parseSortMode(window.sessionStorage.getItem(DOCUMENT_TREE_SORT_MODE_STORAGE_KEY));
+    return parseSortMode(window.localStorage.getItem(documentTreeSortModeStorageKey(rootDir)));
   } catch {
     return "name";
   }
 }
 
-export function writeStoredSortMode(sortMode: DocumentTreeSortMode) {
+export function writeStoredSortMode(rootDir: string | null, sortMode: DocumentTreeSortMode) {
   if (typeof window === "undefined") {
     return;
   }
 
   try {
-    window.sessionStorage.setItem(DOCUMENT_TREE_SORT_MODE_STORAGE_KEY, sortMode);
+    window.localStorage.setItem(documentTreeSortModeStorageKey(rootDir), sortMode);
   } catch {
-    // Keep sorting usable even if session storage is unavailable.
+    // Keep sorting usable even if local storage is unavailable.
   }
 }
 
