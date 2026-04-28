@@ -18,6 +18,7 @@ type DocumentState = "idle" | "loading" | "ready" | "error";
 type DocumentMode = "preview" | "edit";
 type DocumentSortMode = "path" | "name" | "modified" | "size";
 type DocumentSortDirection = "asc" | "desc";
+type DocumentSortDirectionByMode = Partial<Record<DocumentSortMode, DocumentSortDirection>>;
 
 interface AppStore {
   bootstrapState: BootstrapState;
@@ -38,6 +39,7 @@ interface AppStore {
   documentSearchQuery: string;
   documentSortMode: DocumentSortMode;
   documentSortDirection: DocumentSortDirection;
+  documentSortDirections: DocumentSortDirectionByMode;
   successMessage: string | null;
   successMessageId: number;
   document: {
@@ -92,6 +94,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
   documentSearchQuery: "",
   documentSortMode: "path",
   documentSortDirection: "asc",
+  documentSortDirections: {},
   successMessage: null,
   successMessageId: 0,
   document: createEmptyDocument(),
@@ -99,15 +102,20 @@ export const useAppStore = create<AppStore>((set, get) => ({
   setDocumentSearchQuery: (query) => set({ documentSearchQuery: query }),
   setDocumentSortMode: (mode) =>
     set((state) => {
-      const direction = defaultDocumentSortDirection(mode);
+      const direction = state.documentSortDirections[mode] ?? defaultDocumentSortDirection(mode);
       persistDocumentSortMode(state.rootDir, mode);
       persistDocumentSortDirection(state.rootDir, direction);
       return { documentSortMode: mode, documentSortDirection: direction };
     }),
   setDocumentSortDirection: (direction) =>
     set((state) => {
+      const documentSortDirections = {
+        ...state.documentSortDirections,
+        [state.documentSortMode]: direction,
+      };
       persistDocumentSortDirection(state.rootDir, direction);
-      return { documentSortDirection: direction };
+      persistDocumentSortDirections(state.rootDir, documentSortDirections);
+      return { documentSortDirection: direction, documentSortDirections };
     }),
   toggleFavoriteDocument: (relativePath) => {
     set((state) => {
@@ -167,7 +175,12 @@ export const useAppStore = create<AppStore>((set, get) => ({
       const favoriteDocuments = loadFavoriteDocuments(session.rootDir, fileSet);
       const recentDocuments = loadRecentDocuments(session.rootDir, fileSet);
       const documentSortMode = loadDocumentSortMode(session.rootDir);
-      const documentSortDirection = loadDocumentSortDirection(session.rootDir, documentSortMode);
+      const loadedDocumentSortDirections = loadDocumentSortDirections(session.rootDir);
+      const documentSortDirection = loadDocumentSortDirection(session.rootDir, documentSortMode, loadedDocumentSortDirections);
+      const documentSortDirections = {
+        ...loadedDocumentSortDirections,
+        [documentSortMode]: documentSortDirection,
+      };
       set({
         bootstrapState: "ready",
         rootDir: session.rootDir,
@@ -178,6 +191,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
         recentDocuments,
         documentSortMode,
         documentSortDirection,
+        documentSortDirections,
         selectedFile: session.selectedFile,
       });
 
@@ -632,7 +646,16 @@ function persistDocumentSortMode(rootDir: string | null, mode: DocumentSortMode)
   safeLocalStorageSet(documentSortModeStorageKey(rootDir), mode);
 }
 
-function loadDocumentSortDirection(rootDir: string, mode: DocumentSortMode): DocumentSortDirection {
+function loadDocumentSortDirection(
+  rootDir: string,
+  mode: DocumentSortMode,
+  directions: DocumentSortDirectionByMode,
+): DocumentSortDirection {
+  const modeDirection = directions[mode];
+  if (modeDirection) {
+    return modeDirection;
+  }
+
   const stored = safeLocalStorageGet(documentSortDirectionStorageKey(rootDir));
   return isDocumentSortDirection(stored) ? stored : defaultDocumentSortDirection(mode);
 }
@@ -643,6 +666,33 @@ function persistDocumentSortDirection(rootDir: string | null, direction: Documen
   }
 
   safeLocalStorageSet(documentSortDirectionStorageKey(rootDir), direction);
+}
+
+function loadDocumentSortDirections(rootDir: string): DocumentSortDirectionByMode {
+  const stored = safeLocalStorageGet(documentSortDirectionsStorageKey(rootDir));
+  if (!stored) {
+    return {};
+  }
+
+  try {
+    const parsed = JSON.parse(stored) as Record<string, unknown>;
+    return Object.entries(parsed).reduce<DocumentSortDirectionByMode>((directions, [mode, direction]) => {
+      if (isDocumentSortMode(mode) && typeof direction === "string" && isDocumentSortDirection(direction)) {
+        directions[mode] = direction;
+      }
+      return directions;
+    }, {});
+  } catch {
+    return {};
+  }
+}
+
+function persistDocumentSortDirections(rootDir: string | null, directions: DocumentSortDirectionByMode) {
+  if (!rootDir) {
+    return;
+  }
+
+  safeLocalStorageSet(documentSortDirectionsStorageKey(rootDir), JSON.stringify(directions));
 }
 
 function defaultDocumentSortDirection(mode: DocumentSortMode): DocumentSortDirection {
@@ -663,6 +713,10 @@ function documentSortModeStorageKey(rootDir: string) {
 
 function documentSortDirectionStorageKey(rootDir: string) {
   return `markmini:document-sort-direction:${rootDir}`;
+}
+
+function documentSortDirectionsStorageKey(rootDir: string) {
+  return `markmini:document-sort-directions:${rootDir}`;
 }
 
 function loadFavoriteDocuments(rootDir: string, fileSet: ReadonlySet<string>) {

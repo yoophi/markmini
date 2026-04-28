@@ -47,6 +47,7 @@ function resetStore() {
     documentSearchQuery: "",
     documentSortMode: "path",
     documentSortDirection: "asc",
+    documentSortDirections: {},
     successMessage: null,
     successMessageId: 0,
     document: {
@@ -166,6 +167,43 @@ describe("app store document safety flows", () => {
 
     expect(useAppStore.getState().documentSortMode).toBe("name");
     expect(useAppStore.getState().documentSortDirection).toBe("desc");
+  });
+
+  it("remembers sort directions per mode", () => {
+    useAppStore.setState({ rootDir: "/vault" });
+
+    useAppStore.getState().setDocumentSortMode("name");
+    useAppStore.getState().setDocumentSortDirection("desc");
+    useAppStore.getState().setDocumentSortMode("size");
+
+    expect(useAppStore.getState().documentSortDirection).toBe("desc");
+
+    useAppStore.getState().setDocumentSortDirection("asc");
+    useAppStore.getState().setDocumentSortMode("name");
+
+    expect(useAppStore.getState().documentSortDirection).toBe("desc");
+    expect(JSON.parse(localStorage.getItem("markmini:document-sort-directions:/vault") ?? "{}")).toEqual({
+      name: "desc",
+      size: "asc",
+    });
+  });
+
+  it("restores persisted per-mode sort directions ahead of the legacy direction key", async () => {
+    localStorage.setItem("markmini:document-sort-mode:/vault", "size");
+    localStorage.setItem("markmini:document-sort-direction:/vault", "desc");
+    localStorage.setItem("markmini:document-sort-directions:/vault", JSON.stringify({ size: "asc", name: "desc", unknown: "asc" }));
+    vi.mocked(getInitialSession).mockResolvedValue({
+      rootDir: "/vault",
+      files: [],
+      fileMetadata: [],
+      selectedFile: null,
+    });
+
+    await useAppStore.getState().bootstrap();
+
+    expect(useAppStore.getState().documentSortMode).toBe("size");
+    expect(useAppStore.getState().documentSortDirection).toBe("asc");
+    expect(useAppStore.getState().documentSortDirections).toEqual({ size: "asc", name: "desc" });
   });
 
   it("falls back to path sort when persisted sort mode is invalid", async () => {
