@@ -202,7 +202,7 @@ export function FileTree({ files, scanState, skippedCount, selectedFile, onSelec
   );
 }
 
-interface TreeNodeData {
+export interface TreeNodeData {
   name: string;
   path: string;
   kind: "directory" | "file";
@@ -244,9 +244,9 @@ function TreeNode({
           data-tree-path={node.path}
           onFocus={() => onFocusItem(node.path)}
           onClick={() => onToggle(node.path)}
+          style={{ paddingLeft: treeNodeIndent(depth) }}
           className={cn(
             "group flex h-9 w-full items-center gap-2 rounded-md pr-2 text-left text-sm outline-none transition-colors",
-            treeNodeIndentClass(depth),
             "text-muted-foreground hover:bg-accent hover:text-accent-foreground focus-visible:ring-2 focus-visible:ring-ring",
           )}
         >
@@ -276,15 +276,14 @@ function TreeNode({
         data-tree-path={node.path}
         onFocus={() => onFocusItem(node.path)}
         onClick={() => onSelect(node.path)}
+        style={{ paddingLeft: treeNodeIndent(depth) }}
         className={cn(
           "group flex h-9 w-full items-center gap-2 rounded-md pr-2 text-left text-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
-          treeNodeIndentClass(depth),
           isSelected
             ? "bg-primary text-primary-foreground shadow-sm"
             : "text-foreground hover:bg-accent hover:text-accent-foreground",
         )}
       >
-        <span className="h-4 w-4 shrink-0" aria-hidden="true" />
         <FileText className={cn("h-4 w-4 shrink-0", isSelected ? "opacity-90" : "text-muted-foreground")} />
         <span className="truncate">{label}</span>
       </button>
@@ -292,9 +291,8 @@ function TreeNode({
   );
 }
 
-function treeNodeIndentClass(depth: number) {
-  const classes = ["pl-2", "pl-6", "pl-10", "pl-14", "pl-16"];
-  return classes[Math.min(depth, classes.length - 1)];
+export function treeNodeIndent(depth: number) {
+  return `${8 + depth * 20}px`;
 }
 
 function collectDirectoryPaths(nodes: TreeNodeData[]) {
@@ -307,7 +305,7 @@ function collectDirectoryPaths(nodes: TreeNodeData[]) {
   return paths;
 }
 
-function flattenVisibleTree(nodes: TreeNodeData[], expandedPaths: Set<string>, depth = 0) {
+export function flattenVisibleTree(nodes: TreeNodeData[], expandedPaths: Set<string>, depth = 0) {
   const items: Array<{ node: TreeNodeData; depth: number }> = [];
   for (const node of nodes) {
     items.push({ node, depth });
@@ -337,7 +335,7 @@ function ancestorDirectoryPaths(path: string) {
   return segments.map((_, index) => segments.slice(0, index + 1).join("/"));
 }
 
-function buildTree(files: string[]) {
+export function buildTree(files: string[]) {
   const root: TreeNodeData[] = [];
 
   for (const file of files) {
