@@ -9,9 +9,11 @@ import type { ScanStatus } from "@/types/content";
 import type { MarkdownFileMetadata } from "@/types/content";
 
 export type DocumentTreeSortMode = "name" | "path" | "modified" | "size";
+export type DocumentTreeSortDirection = "asc" | "desc";
 
 export const DOCUMENT_TREE_SEARCH_QUERY_STORAGE_KEY = "markmini.documentTree.searchQuery";
 export const DOCUMENT_TREE_SORT_MODE_STORAGE_KEY = "markmini.documentTree.sortMode";
+export const DOCUMENT_TREE_SORT_DIRECTION_STORAGE_KEY = "markmini.documentTree.sortDirection";
 
 interface FileTreeProps {
   rootDir: string | null;
@@ -40,9 +42,15 @@ export function FileTree({
 }: FileTreeProps) {
   const [searchQuery, setSearchQuery] = useState(readStoredSearchQuery);
   const [sortMode, setSortMode] = useState<DocumentTreeSortMode>(() => readStoredSortMode(rootDir));
+  const [sortDirection, setSortDirection] = useState<DocumentTreeSortDirection>(() =>
+    readStoredSortDirection(rootDir, readStoredSortMode(rootDir)),
+  );
   const normalizedSearchQuery = searchQuery.trim().toLocaleLowerCase();
   const filteredFiles = useMemo(() => filterFiles(files, normalizedSearchQuery), [files, normalizedSearchQuery]);
-  const tree = useMemo(() => buildTree(filteredFiles, sortMode, fileMetadata), [filteredFiles, fileMetadata, sortMode]);
+  const tree = useMemo(
+    () => buildTree(filteredFiles, sortMode, fileMetadata, sortDirection),
+    [filteredFiles, fileMetadata, sortDirection, sortMode],
+  );
   const directoryPaths = useMemo(() => collectDirectoryPaths(tree), [tree]);
   const selectedFileIsFilteredOut = Boolean(normalizedSearchQuery && selectedFile && !filteredFiles.includes(selectedFile));
   const hasInitializedExpansionRef = useRef(false);
@@ -57,12 +65,18 @@ export function FileTree({
   }, [searchQuery]);
 
   useEffect(() => {
-    setSortMode(readStoredSortMode(rootDir));
+    const storedSortMode = readStoredSortMode(rootDir);
+    setSortMode(storedSortMode);
+    setSortDirection(readStoredSortDirection(rootDir, storedSortMode));
   }, [rootDir]);
 
   useEffect(() => {
     writeStoredSortMode(rootDir, sortMode);
   }, [rootDir, sortMode]);
+
+  useEffect(() => {
+    writeStoredSortDirection(rootDir, sortDirection);
+  }, [rootDir, sortDirection]);
 
   useEffect(() => {
     setExpandedPaths((current) => {
@@ -116,6 +130,12 @@ export function FileTree({
       }
       return next;
     });
+  };
+
+  const handleSortModeChange = (value: string) => {
+    const nextSortMode = parseSortMode(value);
+    setSortMode(nextSortMode);
+    setSortDirection(defaultSortDirection(nextSortMode));
   };
 
   const handleTreeKeyDown = (event: KeyboardEvent<HTMLUListElement>) => {
@@ -233,17 +253,28 @@ export function FileTree({
         </div>
         <div className="mt-3 flex items-center justify-between gap-3 text-xs text-muted-foreground">
           <span>정렬</span>
-          <select
-            value={sortMode}
-            onChange={(event) => setSortMode(parseSortMode(event.target.value))}
-            aria-label="문서 트리 정렬"
-            className="h-8 rounded-md border border-border bg-background px-2 text-xs text-foreground outline-none transition focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            <option value="name">이름순</option>
-            <option value="path">경로순</option>
-            <option value="modified">수정일순</option>
-            <option value="size">크기순</option>
-          </select>
+          <div className="flex items-center gap-2">
+            <select
+              value={sortMode}
+              onChange={(event) => handleSortModeChange(event.target.value)}
+              aria-label="문서 트리 정렬"
+              className="h-8 rounded-md border border-border bg-background px-2 text-xs text-foreground outline-none transition focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <option value="name">이름순</option>
+              <option value="path">경로순</option>
+              <option value="modified">수정일순</option>
+              <option value="size">크기순</option>
+            </select>
+            <select
+              value={sortDirection}
+              onChange={(event) => setSortDirection(parseSortDirection(event.target.value, sortMode))}
+              aria-label="문서 트리 정렬 방향"
+              className="h-8 rounded-md border border-border bg-background px-2 text-xs text-foreground outline-none transition focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <option value="asc">오름차순</option>
+              <option value="desc">내림차순</option>
+            </select>
+          </div>
         </div>
         {scanState === "scanning" || skippedCount > 0 ? (
           <div className="mt-2 flex items-center justify-between gap-3 text-xs text-muted-foreground">
@@ -546,6 +577,10 @@ export function documentTreeSortModeStorageKey(rootDir: string | null) {
   return rootDir ? `${DOCUMENT_TREE_SORT_MODE_STORAGE_KEY}:${rootDir}` : DOCUMENT_TREE_SORT_MODE_STORAGE_KEY;
 }
 
+export function documentTreeSortDirectionStorageKey(rootDir: string | null) {
+  return rootDir ? `${DOCUMENT_TREE_SORT_DIRECTION_STORAGE_KEY}:${rootDir}` : DOCUMENT_TREE_SORT_DIRECTION_STORAGE_KEY;
+}
+
 export function shouldShowSearchClearButton(searchQuery: string) {
   return searchQuery.length > 0;
 }
@@ -624,14 +659,53 @@ export function writeStoredSortMode(rootDir: string | null, sortMode: DocumentTr
   }
 }
 
+export function readStoredSortDirection(
+  rootDir: string | null = null,
+  sortMode: DocumentTreeSortMode = "name",
+): DocumentTreeSortDirection {
+  if (typeof window === "undefined") {
+    return defaultSortDirection(sortMode);
+  }
+
+  try {
+    return parseSortDirection(window.localStorage.getItem(documentTreeSortDirectionStorageKey(rootDir)), sortMode);
+  } catch {
+    return defaultSortDirection(sortMode);
+  }
+}
+
+export function writeStoredSortDirection(rootDir: string | null, sortDirection: DocumentTreeSortDirection) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  try {
+    window.localStorage.setItem(documentTreeSortDirectionStorageKey(rootDir), sortDirection);
+  } catch {
+    // Keep sorting usable even if local storage is unavailable.
+  }
+}
+
 export function parseSortMode(value: unknown): DocumentTreeSortMode {
   return value === "path" || value === "modified" || value === "size" ? value : "name";
+}
+
+export function parseSortDirection(
+  value: unknown,
+  sortMode: DocumentTreeSortMode = "name",
+): DocumentTreeSortDirection {
+  return value === "asc" || value === "desc" ? value : defaultSortDirection(sortMode);
+}
+
+export function defaultSortDirection(sortMode: DocumentTreeSortMode): DocumentTreeSortDirection {
+  return sortMode === "modified" || sortMode === "size" ? "desc" : "asc";
 }
 
 export function buildTree(
   files: string[],
   sortMode: DocumentTreeSortMode = "name",
   fileMetadata: Record<string, MarkdownFileMetadata> = {},
+  sortDirection: DocumentTreeSortDirection = defaultSortDirection(sortMode),
 ) {
   const root: TreeNodeData[] = [];
 
@@ -639,7 +713,7 @@ export function buildTree(
     insertNode(root, file.split("/"), "", file);
   }
 
-  return sortTree(root, sortMode, fileMetadata);
+  return sortTree(root, sortMode, fileMetadata, sortDirection);
 }
 
 function insertNode(nodes: TreeNodeData[], segments: string[], parentPath: string, originalPath: string) {
@@ -676,34 +750,37 @@ function sortTree(
   nodes: TreeNodeData[],
   sortMode: DocumentTreeSortMode,
   fileMetadata: Record<string, MarkdownFileMetadata>,
+  sortDirection: DocumentTreeSortDirection,
 ): TreeNodeData[] {
   return nodes
     .map((node) => ({
       ...node,
-      children: sortTree(node.children, sortMode, fileMetadata),
+      children: sortTree(node.children, sortMode, fileMetadata, sortDirection),
     }))
     .sort((left, right) => {
       if (left.kind !== right.kind) {
         return left.kind === "directory" ? -1 : 1;
       }
 
+      const directionMultiplier = sortDirection === "asc" ? 1 : -1;
+
       if (sortMode === "modified") {
-        const modifiedComparison = modifiedAt(right, fileMetadata) - modifiedAt(left, fileMetadata);
+        const modifiedComparison = modifiedAt(left, fileMetadata) - modifiedAt(right, fileMetadata);
         if (modifiedComparison !== 0) {
-          return modifiedComparison;
+          return modifiedComparison * directionMultiplier;
         }
       }
 
       if (sortMode === "size") {
-        const sizeComparison = sizeBytes(right, fileMetadata) - sizeBytes(left, fileMetadata);
+        const sizeComparison = sizeBytes(left, fileMetadata) - sizeBytes(right, fileMetadata);
         if (sizeComparison !== 0) {
-          return sizeComparison;
+          return sizeComparison * directionMultiplier;
         }
       }
 
       const leftValue = sortMode === "path" ? left.path : left.name;
       const rightValue = sortMode === "path" ? right.path : right.name;
-      return leftValue.localeCompare(rightValue);
+      return leftValue.localeCompare(rightValue) * directionMultiplier;
     });
 }
 
