@@ -15,8 +15,10 @@ interface FileTreeProps {
   onSelect: (relativePath: string) => void;
 }
 
+export const DOCUMENT_TREE_SEARCH_QUERY_STORAGE_KEY = "markmini.documentTree.searchQuery";
+
 export function FileTree({ files, scanState, skippedCount, selectedFile, onSelect }: FileTreeProps) {
-  const [searchQuery, setSearchQuery] = useState("");
+  const [searchQuery, setSearchQuery] = useState(readStoredSearchQuery);
   const normalizedSearchQuery = searchQuery.trim().toLocaleLowerCase();
   const filteredFiles = useMemo(() => filterFiles(files, normalizedSearchQuery), [files, normalizedSearchQuery]);
   const tree = useMemo(() => buildTree(filteredFiles), [filteredFiles]);
@@ -26,6 +28,10 @@ export function FileTree({ files, scanState, skippedCount, selectedFile, onSelec
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(() => new Set());
   const [focusedPath, setFocusedPath] = useState<string | null>(selectedFile);
   const treeRef = useRef<HTMLUListElement | null>(null);
+
+  useEffect(() => {
+    writeStoredSearchQuery(searchQuery);
+  }, [searchQuery]);
 
   useEffect(() => {
     setExpandedPaths((current) => {
@@ -369,6 +375,34 @@ export function filterFiles(files: string[], normalizedSearchQuery: string) {
     const normalizedLabel = fileLabel(file).toLocaleLowerCase();
     return normalizedPath.includes(normalizedSearchQuery) || normalizedLabel.includes(normalizedSearchQuery);
   });
+}
+
+export function readStoredSearchQuery() {
+  if (typeof window === "undefined") {
+    return "";
+  }
+
+  try {
+    return window.sessionStorage.getItem(DOCUMENT_TREE_SEARCH_QUERY_STORAGE_KEY) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+export function writeStoredSearchQuery(searchQuery: string) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  try {
+    if (searchQuery) {
+      window.sessionStorage.setItem(DOCUMENT_TREE_SEARCH_QUERY_STORAGE_KEY, searchQuery);
+    } else {
+      window.sessionStorage.removeItem(DOCUMENT_TREE_SEARCH_QUERY_STORAGE_KEY);
+    }
+  } catch {
+    // Ignore storage failures so the document tree remains usable in restricted contexts.
+  }
 }
 
 export function buildTree(files: string[]) {

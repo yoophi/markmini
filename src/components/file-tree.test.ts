@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest";
 
-import { buildTree, filterFiles, flattenVisibleTree, treeNodeIndent } from "./file-tree";
+import {
+  DOCUMENT_TREE_SEARCH_QUERY_STORAGE_KEY,
+  buildTree,
+  filterFiles,
+  flattenVisibleTree,
+  readStoredSearchQuery,
+  treeNodeIndent,
+  writeStoredSearchQuery,
+} from "./file-tree";
 
 const files = ["docs/guide.md", "notes/today.md", "projects/markmini/plan.md"];
 
@@ -41,6 +49,45 @@ describe("document tree filtering", () => {
     ]);
   });
 });
+
+describe("document tree search query persistence", () => {
+  it("stores and restores the query in session storage", () => {
+    const sessionStorage = installSessionStorageMock();
+    window.sessionStorage.clear();
+
+    writeStoredSearchQuery("markmini");
+
+    expect(sessionStorage.getItem(DOCUMENT_TREE_SEARCH_QUERY_STORAGE_KEY)).toBe("markmini");
+    expect(readStoredSearchQuery()).toBe("markmini");
+  });
+
+  it("removes the stored query when the query is cleared", () => {
+    const sessionStorage = installSessionStorageMock();
+    sessionStorage.setItem(DOCUMENT_TREE_SEARCH_QUERY_STORAGE_KEY, "guide");
+
+    writeStoredSearchQuery("");
+
+    expect(sessionStorage.getItem(DOCUMENT_TREE_SEARCH_QUERY_STORAGE_KEY)).toBeNull();
+    expect(readStoredSearchQuery()).toBe("");
+  });
+});
+
+function installSessionStorageMock() {
+  const values = new Map<string, string>();
+  const sessionStorage = {
+    clear: () => values.clear(),
+    getItem: (key: string) => values.get(key) ?? null,
+    removeItem: (key: string) => values.delete(key),
+    setItem: (key: string, value: string) => values.set(key, value),
+  };
+
+  Object.defineProperty(globalThis, "window", {
+    value: { sessionStorage },
+    configurable: true,
+  });
+
+  return sessionStorage;
+}
 
 describe("file tree structure", () => {
   it("preserves every parent directory for deeply nested markdown files", () => {
