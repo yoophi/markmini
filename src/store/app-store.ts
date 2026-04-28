@@ -30,6 +30,7 @@ interface AppStore {
   selectedFile: string | null;
   documentLoadToken: number;
   isSidebarOpen: boolean;
+  documentSearchQuery: string;
   successMessage: string | null;
   successMessageId: number;
   document: {
@@ -46,6 +47,7 @@ interface AppStore {
     externalChangeDetected: boolean;
   };
   setSidebarOpen: (open: boolean) => void;
+  setDocumentSearchQuery: (query: string) => void;
   clearSuccessMessage: () => void;
   applyScanProgress: (payload: ScanProgressPayload) => Promise<void>;
   bootstrap: () => Promise<void>;
@@ -74,10 +76,12 @@ export const useAppStore = create<AppStore>((set, get) => ({
   selectedFile: null,
   documentLoadToken: 0,
   isSidebarOpen: false,
+  documentSearchQuery: "",
   successMessage: null,
   successMessageId: 0,
   document: createEmptyDocument(),
   setSidebarOpen: (open) => set({ isSidebarOpen: open }),
+  setDocumentSearchQuery: (query) => set({ documentSearchQuery: query }),
   clearSuccessMessage: () => set({ successMessage: null }),
   applyScanProgress: async (payload) => {
     const state = get();

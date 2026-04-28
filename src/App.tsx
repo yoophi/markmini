@@ -38,6 +38,8 @@ function App() {
   const document = useAppStore((state) => state.document);
   const isSidebarOpen = useAppStore((state) => state.isSidebarOpen);
   const setSidebarOpen = useAppStore((state) => state.setSidebarOpen);
+  const documentSearchQuery = useAppStore((state) => state.documentSearchQuery);
+  const setDocumentSearchQuery = useAppStore((state) => state.setDocumentSearchQuery);
 
   const [isCreateDialogOpen, setCreateDialogOpen] = useState(false);
   const [isRenameDialogOpen, setRenameDialogOpen] = useState(false);
@@ -256,6 +258,8 @@ function App() {
                         scanState={scanState}
                         skippedCount={scanSkippedPaths.length}
                         selectedFile={selectedFile}
+                        searchQuery={documentSearchQuery}
+                        onSearchQueryChange={setDocumentSearchQuery}
                         onSelect={handleOpenDocument}
                       />
                     </div>
@@ -298,6 +302,8 @@ function App() {
                     scanState={scanState}
                     skippedCount={scanSkippedPaths.length}
                     selectedFile={selectedFile}
+                    searchQuery={documentSearchQuery}
+                    onSearchQueryChange={setDocumentSearchQuery}
                     onSelect={handleOpenDocument}
                   />
                 </div>

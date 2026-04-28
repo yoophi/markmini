@@ -12,11 +12,20 @@ interface FileTreeProps {
   scanState: ScanStatus;
   skippedCount: number;
   selectedFile: string | null;
+  searchQuery: string;
+  onSearchQueryChange: (query: string) => void;
   onSelect: (relativePath: string) => void;
 }
 
-export function FileTree({ files, scanState, skippedCount, selectedFile, onSelect }: FileTreeProps) {
-  const [searchQuery, setSearchQuery] = useState("");
+export function FileTree({
+  files,
+  scanState,
+  skippedCount,
+  selectedFile,
+  searchQuery,
+  onSearchQueryChange,
+  onSelect,
+}: FileTreeProps) {
   const normalizedSearchQuery = searchQuery.trim().toLocaleLowerCase();
   const filteredFiles = useMemo(() => filterFiles(files, normalizedSearchQuery), [files, normalizedSearchQuery]);
   const tree = useMemo(() => buildTree(filteredFiles), [filteredFiles]);
@@ -168,7 +177,7 @@ export function FileTree({ files, scanState, skippedCount, selectedFile, onSelec
           <input
             type="search"
             value={searchQuery}
-            onChange={(event) => setSearchQuery(event.target.value)}
+            onChange={(event) => onSearchQueryChange(event.target.value)}
             placeholder="문서 검색"
             aria-label="문서 검색"
             className="h-9 w-full rounded-md border border-border bg-background pl-9 pr-3 text-sm text-foreground outline-none transition placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"

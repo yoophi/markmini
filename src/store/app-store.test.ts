@@ -38,6 +38,7 @@ function resetStore() {
     selectedFile: null,
     documentLoadToken: 0,
     isSidebarOpen: false,
+    documentSearchQuery: "",
     successMessage: null,
     successMessageId: 0,
     document: {
@@ -60,6 +61,12 @@ describe("app store document safety flows", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     resetStore();
+  });
+
+  it("stores the document search query in window state", () => {
+    useAppStore.getState().setDocumentSearchQuery("guide");
+
+    expect(useAppStore.getState().documentSearchQuery).toBe("guide");
   });
 
   it("saves the dirty draft and clears dirty state", async () => {

@@ -1,5 +1,6 @@
 /** @vitest-environment jsdom */
 
+import { useState } from "react";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -12,16 +13,27 @@ afterEach(() => {
 });
 
 function renderFileTree(options: Partial<React.ComponentProps<typeof FileTree>> = {}) {
-  return render(
-    <FileTree
-      files={files}
-      scanState="completed"
-      skippedCount={0}
-      selectedFile="docs/guide.md"
-      onSelect={vi.fn()}
-      {...options}
-    />,
-  );
+  function ControlledFileTree() {
+    const [searchQuery, setSearchQuery] = useState(options.searchQuery ?? "");
+
+    return (
+      <FileTree
+        files={files}
+        scanState="completed"
+        skippedCount={0}
+        selectedFile="docs/guide.md"
+        onSelect={vi.fn()}
+        {...options}
+        searchQuery={searchQuery}
+        onSearchQueryChange={(query) => {
+          setSearchQuery(query);
+          options.onSearchQueryChange?.(query);
+        }}
+      />
+    );
+  }
+
+  return render(<ControlledFileTree />);
 }
 
 describe("FileTree search", () => {
