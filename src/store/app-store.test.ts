@@ -43,6 +43,7 @@ function resetStore() {
     documentLoadToken: 0,
     isSidebarOpen: false,
     documentSearchQuery: "",
+    documentSortMode: "path",
     successMessage: null,
     successMessageId: 0,
     document: {
@@ -68,10 +69,12 @@ describe("app store document safety flows", () => {
     resetStore();
   });
 
-  it("stores the document search query in window state", () => {
+  it("stores document tree controls in window state", () => {
     useAppStore.getState().setDocumentSearchQuery("guide");
+    useAppStore.getState().setDocumentSortMode("name");
 
     expect(useAppStore.getState().documentSearchQuery).toBe("guide");
+    expect(useAppStore.getState().documentSortMode).toBe("name");
   });
 
   it("toggles favorite documents and persists only relative paths", () => {

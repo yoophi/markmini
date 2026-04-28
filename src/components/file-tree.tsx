@@ -7,6 +7,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import type { ScanStatus } from "@/types/content";
 
+type DocumentSortMode = "path" | "name";
+
 interface FileTreeProps {
   files: string[];
   scanState: ScanStatus;
@@ -15,7 +17,9 @@ interface FileTreeProps {
   favoriteDocuments: string[];
   recentDocuments: string[];
   searchQuery: string;
+  sortMode: DocumentSortMode;
   onSearchQueryChange: (query: string) => void;
+  onSortModeChange: (mode: DocumentSortMode) => void;
   onSelect: (relativePath: string) => void;
 }
 
@@ -27,12 +31,14 @@ export function FileTree({
   favoriteDocuments,
   recentDocuments,
   searchQuery,
+  sortMode,
   onSearchQueryChange,
+  onSortModeChange,
   onSelect,
 }: FileTreeProps) {
   const normalizedSearchQuery = searchQuery.trim().toLocaleLowerCase();
-  const filteredFiles = useMemo(() => filterFiles(files, normalizedSearchQuery), [files, normalizedSearchQuery]);
-  const tree = useMemo(() => buildTree(filteredFiles), [filteredFiles]);
+  const filteredFiles = useMemo(() => sortFiles(filterFiles(files, normalizedSearchQuery), sortMode), [files, normalizedSearchQuery, sortMode]);
+  const tree = useMemo(() => buildTree(filteredFiles, sortMode), [filteredFiles, sortMode]);
   const visibleFavoriteDocuments = useMemo(() => favoriteDocuments.filter((file) => files.includes(file)), [favoriteDocuments, files]);
   const visibleRecentDocuments = useMemo(() => recentDocuments.filter((file) => files.includes(file)), [files, recentDocuments]);
   const directoryPaths = useMemo(() => collectDirectoryPaths(tree), [tree]);
@@ -225,6 +231,20 @@ export function FileTree({
               <X className="h-4 w-4" />
             </button>
           ) : null}
+        </div>
+        <div className="mt-2 flex items-center justify-between gap-2 text-xs text-muted-foreground">
+          <label htmlFor="document-sort-mode" className="font-medium">
+            정렬
+          </label>
+          <select
+            id="document-sort-mode"
+            value={sortMode}
+            onChange={(event) => onSortModeChange(event.target.value as DocumentSortMode)}
+            className="h-8 rounded-md border border-border bg-background px-2 text-xs text-foreground outline-none transition focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <option value="path">경로순</option>
+            <option value="name">이름순</option>
+          </select>
         </div>
         {scanState === "scanning" || skippedCount > 0 ? (
           <div className="mt-2 flex items-center justify-between gap-3 text-xs text-muted-foreground">
@@ -509,14 +529,27 @@ function filterFiles(files: string[], normalizedSearchQuery: string) {
   });
 }
 
-function buildTree(files: string[]) {
+function sortFiles(files: string[], sortMode: DocumentSortMode) {
+  return [...files].sort((left, right) => {
+    if (sortMode === "name") {
+      const labelComparison = fileLabel(left).localeCompare(fileLabel(right));
+      if (labelComparison !== 0) {
+        return labelComparison;
+      }
+    }
+
+    return left.localeCompare(right);
+  });
+}
+
+function buildTree(files: string[], sortMode: DocumentSortMode) {
   const root: TreeNodeData[] = [];
 
   for (const file of files) {
     insertNode(root, file.split("/"), "", file);
   }
 
-  return sortTree(root);
+  return sortTree(root, sortMode);
 }
 
 function insertNode(nodes: TreeNodeData[], segments: string[], parentPath: string, originalPath: string) {
@@ -549,17 +582,22 @@ function insertNode(nodes: TreeNodeData[], segments: string[], parentPath: strin
   }
 }
 
-function sortTree(nodes: TreeNodeData[]): TreeNodeData[] {
+function sortTree(nodes: TreeNodeData[], sortMode: DocumentSortMode): TreeNodeData[] {
   return nodes
     .map((node) => ({
       ...node,
-      children: sortTree(node.children),
+      children: sortTree(node.children, sortMode),
     }))
     .sort((left, right) => {
-      if (left.kind !== right.kind) {
+      if (sortMode === "path" && left.kind !== right.kind) {
         return left.kind === "directory" ? -1 : 1;
       }
 
-      return left.name.localeCompare(right.name);
+      const labelComparison = left.name.localeCompare(right.name);
+      if (labelComparison !== 0) {
+        return labelComparison;
+      }
+
+      return left.path.localeCompare(right.path);
     });
 }

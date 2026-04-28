@@ -16,6 +16,7 @@ import type { HeadingItem, ScanStatus } from "@/types/content";
 type BootstrapState = "idle" | "loading" | "ready" | "error";
 type DocumentState = "idle" | "loading" | "ready" | "error";
 type DocumentMode = "preview" | "edit";
+type DocumentSortMode = "path" | "name";
 
 interface AppStore {
   bootstrapState: BootstrapState;
@@ -33,6 +34,7 @@ interface AppStore {
   documentLoadToken: number;
   isSidebarOpen: boolean;
   documentSearchQuery: string;
+  documentSortMode: DocumentSortMode;
   successMessage: string | null;
   successMessageId: number;
   document: {
@@ -50,6 +52,7 @@ interface AppStore {
   };
   setSidebarOpen: (open: boolean) => void;
   setDocumentSearchQuery: (query: string) => void;
+  setDocumentSortMode: (mode: DocumentSortMode) => void;
   toggleFavoriteDocument: (relativePath: string) => void;
   clearSuccessMessage: () => void;
   applyScanProgress: (payload: ScanProgressPayload) => Promise<void>;
@@ -82,11 +85,13 @@ export const useAppStore = create<AppStore>((set, get) => ({
   documentLoadToken: 0,
   isSidebarOpen: false,
   documentSearchQuery: "",
+  documentSortMode: "path",
   successMessage: null,
   successMessageId: 0,
   document: createEmptyDocument(),
   setSidebarOpen: (open) => set({ isSidebarOpen: open }),
   setDocumentSearchQuery: (query) => set({ documentSearchQuery: query }),
+  setDocumentSortMode: (mode) => set({ documentSortMode: mode }),
   toggleFavoriteDocument: (relativePath) => {
     set((state) => {
       const favoriteDocuments = state.favoriteDocuments.includes(relativePath)

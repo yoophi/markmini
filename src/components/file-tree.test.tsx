@@ -27,10 +27,12 @@ function renderFileTree(options: Partial<React.ComponentProps<typeof FileTree>> 
         onSelect={vi.fn()}
         {...options}
         searchQuery={searchQuery}
+        sortMode="path"
         onSearchQueryChange={(query) => {
           setSearchQuery(query);
           options.onSearchQueryChange?.(query);
         }}
+        onSortModeChange={vi.fn()}
       />
     );
   }
@@ -110,6 +112,37 @@ describe("FileTree search", () => {
     fireEvent.click(within(screen.getByRole("tree")).getByRole("treeitem", { name: /today/i }));
 
     expect(onSelect).toHaveBeenCalledWith("notes/today.md");
+  });
+
+  it("changes document tree ordering with the sort control", () => {
+    function SortableFileTree() {
+      const [sortMode, setSortMode] = useState<React.ComponentProps<typeof FileTree>["sortMode"]>("path");
+      return (
+        <FileTree
+          files={["docs/guide.md", "alpha.md"]}
+          scanState="completed"
+          skippedCount={0}
+          selectedFile="alpha.md"
+          favoriteDocuments={["docs/guide.md"]}
+          recentDocuments={["alpha.md"]}
+          searchQuery=""
+          sortMode={sortMode}
+          onSearchQueryChange={vi.fn()}
+          onSortModeChange={setSortMode}
+          onSelect={vi.fn()}
+        />
+      );
+    }
+
+    render(<SortableFileTree />);
+
+    expect(within(screen.getByRole("tree")).getAllByRole("treeitem")[0].textContent).toContain("docs");
+
+    fireEvent.change(screen.getByLabelText("정렬"), { target: { value: "name" } });
+
+    expect(within(screen.getByRole("tree")).getAllByRole("treeitem")[0].textContent).toContain("alpha");
+    expect(screen.queryByText("Favorites")).not.toBeNull();
+    expect(screen.queryByText("Recent")).not.toBeNull();
   });
 
   it("clears the search query with the clear button", () => {

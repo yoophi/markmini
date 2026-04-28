@@ -41,7 +41,9 @@ function App() {
   const isSidebarOpen = useAppStore((state) => state.isSidebarOpen);
   const setSidebarOpen = useAppStore((state) => state.setSidebarOpen);
   const documentSearchQuery = useAppStore((state) => state.documentSearchQuery);
+  const documentSortMode = useAppStore((state) => state.documentSortMode);
   const setDocumentSearchQuery = useAppStore((state) => state.setDocumentSearchQuery);
+  const setDocumentSortMode = useAppStore((state) => state.setDocumentSortMode);
   const toggleFavoriteDocument = useAppStore((state) => state.toggleFavoriteDocument);
 
   const [isCreateDialogOpen, setCreateDialogOpen] = useState(false);
@@ -265,7 +267,9 @@ function App() {
                         favoriteDocuments={favoriteDocuments}
                         recentDocuments={recentDocuments}
                         searchQuery={documentSearchQuery}
+                        sortMode={documentSortMode}
                         onSearchQueryChange={setDocumentSearchQuery}
+                        onSortModeChange={setDocumentSortMode}
                         onSelect={handleOpenDocument}
                       />
                     </div>
@@ -311,7 +315,9 @@ function App() {
                     favoriteDocuments={favoriteDocuments}
                     recentDocuments={recentDocuments}
                     searchQuery={documentSearchQuery}
+                    sortMode={documentSortMode}
                     onSearchQueryChange={setDocumentSearchQuery}
+                    onSortModeChange={setDocumentSortMode}
                     onSelect={handleOpenDocument}
                   />
                 </div>
