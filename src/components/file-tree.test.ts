@@ -5,6 +5,7 @@ import {
   DOCUMENT_TREE_SORT_MODE_STORAGE_KEY,
   buildTree,
   defaultSortDirection,
+  documentTreeSortDirectionForModeStorageKey,
   documentTreeSortDirectionStorageKey,
   documentTreeSortModeStorageKey,
   filterFiles,
@@ -13,10 +14,12 @@ import {
   formatModifiedAt,
   parseSortDirection,
   parseSortMode,
+  readStoredSortDirectionForMode,
   readStoredSortDirection,
   readStoredSortMode,
   treeNodeIndent,
   writeStoredSortDirection,
+  writeStoredSortDirectionForMode,
   writeStoredSortMode,
 } from "./file-tree";
 
@@ -171,6 +174,27 @@ describe("document tree sorting", () => {
     expect(localStorage.getItem(`${DOCUMENT_TREE_SORT_DIRECTION_STORAGE_KEY}:/vault-b`)).toBe("asc");
     expect(readStoredSortDirection("/vault-a", "name")).toBe("desc");
     expect(readStoredSortDirection("/vault-b", "modified")).toBe("asc");
+  });
+
+  it("stores and restores sort direction per root and sort mode", () => {
+    const localStorage = installLocalStorageMock();
+
+    writeStoredSortDirection("/vault", "desc");
+    writeStoredSortDirectionForMode("/vault", "name", "asc");
+    writeStoredSortDirectionForMode("/vault", "modified", "desc");
+
+    expect(localStorage.getItem(documentTreeSortDirectionForModeStorageKey("/vault", "name"))).toBe("asc");
+    expect(readStoredSortDirectionForMode("/vault", "name")).toBe("asc");
+    expect(readStoredSortDirectionForMode("/vault", "modified")).toBe("desc");
+  });
+
+  it("falls back to the legacy root-level direction before using mode defaults", () => {
+    installLocalStorageMock();
+
+    writeStoredSortDirection("/vault", "asc");
+
+    expect(readStoredSortDirectionForMode("/vault", "size")).toBe("asc");
+    expect(readStoredSortDirectionForMode("/other", "size")).toBe("desc");
   });
 
   it("sorts files and directories by newest modified time when metadata is available", () => {

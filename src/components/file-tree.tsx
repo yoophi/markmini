@@ -27,9 +27,10 @@ interface FileTreeProps {
 export function FileTree({ rootDir, files, fileMetadata, scanState, skippedCount, selectedFile, onSelect }: FileTreeProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [sortMode, setSortMode] = useState<DocumentTreeSortMode>(() => readStoredSortMode(rootDir));
-  const [sortDirection, setSortDirection] = useState<DocumentTreeSortDirection>(() =>
-    readStoredSortDirection(rootDir, readStoredSortMode(rootDir)),
-  );
+  const [sortDirection, setSortDirection] = useState<DocumentTreeSortDirection>(() => {
+    const initialSortMode = readStoredSortMode(rootDir);
+    return readStoredSortDirectionForMode(rootDir, initialSortMode);
+  });
   const normalizedSearchQuery = searchQuery.trim().toLocaleLowerCase();
   const filteredFiles = useMemo(() => filterFiles(files, normalizedSearchQuery), [files, normalizedSearchQuery]);
   const tree = useMemo(
@@ -46,7 +47,7 @@ export function FileTree({ rootDir, files, fileMetadata, scanState, skippedCount
   useEffect(() => {
     const storedSortMode = readStoredSortMode(rootDir);
     setSortMode(storedSortMode);
-    setSortDirection(readStoredSortDirection(rootDir, storedSortMode));
+    setSortDirection(readStoredSortDirectionForMode(rootDir, storedSortMode));
   }, [rootDir]);
 
   useEffect(() => {
@@ -55,7 +56,8 @@ export function FileTree({ rootDir, files, fileMetadata, scanState, skippedCount
 
   useEffect(() => {
     writeStoredSortDirection(rootDir, sortDirection);
-  }, [rootDir, sortDirection]);
+    writeStoredSortDirectionForMode(rootDir, sortMode, sortDirection);
+  }, [rootDir, sortDirection, sortMode]);
 
   useEffect(() => {
     setExpandedPaths((current) => {
@@ -114,7 +116,7 @@ export function FileTree({ rootDir, files, fileMetadata, scanState, skippedCount
   const handleSortModeChange = (value: string) => {
     const nextSortMode = parseSortMode(value);
     setSortMode(nextSortMode);
-    setSortDirection(defaultSortDirection(nextSortMode));
+    setSortDirection(readStoredSortDirectionForMode(rootDir, nextSortMode));
   };
 
   const handleTreeKeyDown = (event: KeyboardEvent<HTMLUListElement>) => {
@@ -454,6 +456,10 @@ export function documentTreeSortDirectionStorageKey(rootDir: string | null) {
   return rootDir ? `${DOCUMENT_TREE_SORT_DIRECTION_STORAGE_KEY}:${rootDir}` : DOCUMENT_TREE_SORT_DIRECTION_STORAGE_KEY;
 }
 
+export function documentTreeSortDirectionForModeStorageKey(rootDir: string | null, sortMode: DocumentTreeSortMode) {
+  return `${documentTreeSortDirectionStorageKey(rootDir)}:${sortMode}`;
+}
+
 export function readStoredSortMode(rootDir: string | null = null): DocumentTreeSortMode {
   if (typeof window === "undefined") {
     return "name";
@@ -500,6 +506,42 @@ export function writeStoredSortDirection(rootDir: string | null, sortDirection: 
 
   try {
     window.localStorage.setItem(documentTreeSortDirectionStorageKey(rootDir), sortDirection);
+  } catch {
+    // Keep sorting usable even if local storage is unavailable.
+  }
+}
+
+export function readStoredSortDirectionForMode(
+  rootDir: string | null,
+  sortMode: DocumentTreeSortMode,
+): DocumentTreeSortDirection {
+  if (typeof window === "undefined") {
+    return defaultSortDirection(sortMode);
+  }
+
+  try {
+    const modeDirection = window.localStorage.getItem(documentTreeSortDirectionForModeStorageKey(rootDir, sortMode));
+    if (modeDirection) {
+      return parseSortDirection(modeDirection, sortMode);
+    }
+
+    return parseSortDirection(window.localStorage.getItem(documentTreeSortDirectionStorageKey(rootDir)), sortMode);
+  } catch {
+    return defaultSortDirection(sortMode);
+  }
+}
+
+export function writeStoredSortDirectionForMode(
+  rootDir: string | null,
+  sortMode: DocumentTreeSortMode,
+  sortDirection: DocumentTreeSortDirection,
+) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  try {
+    window.localStorage.setItem(documentTreeSortDirectionForModeStorageKey(rootDir, sortMode), sortDirection);
   } catch {
     // Keep sorting usable even if local storage is unavailable.
   }
