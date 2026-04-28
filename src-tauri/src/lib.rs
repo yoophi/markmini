@@ -1175,4 +1175,51 @@ mod tests {
         assert!(classify_event(&non_markdown, &temp.path).is_none());
         assert!(classify_event(&skipped_markdown, &temp.path).is_none());
     }
+
+    #[test]
+    fn split_target_uses_directory_as_root_without_selected_hint() {
+        let temp = TestDir::new();
+
+        let (root, selected_hint) = split_target(temp.path.clone());
+
+        assert_eq!(root, temp.path);
+        assert_eq!(selected_hint, None);
+    }
+
+    #[test]
+    fn split_target_uses_markdown_parent_as_root_with_selected_hint() {
+        let temp = TestDir::new();
+        let document = temp.path.join("notes").join("guide.md");
+        fs::create_dir_all(document.parent().expect("document should have parent"))
+            .expect("document parent should be created");
+        fs::write(&document, "# Guide\n").expect("document should be written");
+
+        let (root, selected_hint) = split_target(document.clone());
+
+        assert_eq!(root, temp.path.join("notes"));
+        assert_eq!(selected_hint, Some(document));
+    }
+
+    #[test]
+    fn resolve_target_from_args_rejects_non_markdown_files() {
+        let temp = TestDir::new();
+        let text_file = temp.path.join("notes.txt");
+        fs::write(&text_file, "not markdown\n").expect("text file should be written");
+
+        let error = resolve_target_from_args(Some(text_file.to_str().expect("path should be utf-8")), &temp.path)
+            .expect_err("non-markdown file should be rejected");
+
+        assert!(error.contains("launch target must be a directory or markdown file"));
+    }
+
+    #[test]
+    fn resolve_arg_path_resolves_relative_paths_from_current_directory() {
+        let temp = TestDir::new();
+        let document = temp.path.join("guide.md");
+        fs::write(&document, "# Guide\n").expect("markdown file should be written");
+
+        let resolved = resolve_arg_path("guide.md", &temp.path).expect("relative path should resolve");
+
+        assert_eq!(resolved, document.canonicalize().expect("document should canonicalize"));
+    }
 }
