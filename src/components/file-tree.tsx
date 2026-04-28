@@ -388,6 +388,7 @@ function TreeNode({
   const label = isDirectory ? node.name : fileLabel(node.path);
   const modifiedLabel =
     sortMode === "modified" && node.kind === "file" ? formatModifiedAt(fileMetadata[node.path]?.modifiedAt) : null;
+  const sizeLabel = node.kind === "file" ? formatFileSize(fileMetadata[node.path]?.sizeBytes) : null;
 
   if (node.kind === "directory") {
     return (
@@ -450,9 +451,9 @@ function TreeNode({
           <span className="truncate">
             <HighlightedLabel text={label} searchQuery={searchQuery} />
           </span>
-          {modifiedLabel ? (
+          {modifiedLabel || sizeLabel ? (
             <span className={cn("ml-auto shrink-0 text-[11px] tabular-nums", isSelected ? "opacity-80" : "text-muted-foreground")}>
-              {modifiedLabel}
+              {modifiedLabel ?? sizeLabel}
             </span>
           ) : null}
         </button>
@@ -736,4 +737,25 @@ export function formatModifiedAt(modifiedAt: number | null | undefined, now = Da
     month: "short",
     day: "numeric",
   }).format(new Date(modifiedAt));
+}
+
+export function formatFileSize(sizeBytes: number | null | undefined): string | null {
+  if (sizeBytes == null) {
+    return null;
+  }
+
+  if (sizeBytes < 1024) {
+    return `${sizeBytes} B`;
+  }
+
+  const units = ["KB", "MB", "GB"];
+  let value = sizeBytes / 1024;
+  let unitIndex = 0;
+
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024;
+    unitIndex += 1;
+  }
+
+  return `${value >= 10 ? value.toFixed(0) : value.toFixed(1)} ${units[unitIndex]}`;
 }
