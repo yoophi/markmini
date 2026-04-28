@@ -9,7 +9,9 @@
     "test": "vitest run",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "check": "pnpm test && pnpm typecheck && pnpm build",
+    "check:tauri": "cargo test --manifest-path src-tauri/Cargo.toml && cargo check --manifest-path src-tauri/Cargo.toml"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.15",
