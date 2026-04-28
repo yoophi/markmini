@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import type { MarkdownFileMetadata, ScanStatus } from "@/types/content";
 
-type DocumentSortMode = "path" | "name" | "modified";
+type DocumentSortMode = "path" | "name" | "modified" | "size";
 
 interface FileTreeProps {
   files: string[];
@@ -250,6 +250,7 @@ export function FileTree({
             <option value="path">경로순</option>
             <option value="name">이름순</option>
             <option value="modified">수정시간순</option>
+            <option value="size">크기순</option>
           </select>
         </div>
         {scanState === "scanning" || skippedCount > 0 ? (
@@ -598,6 +599,13 @@ function sortFiles(files: string[], sortMode: DocumentSortMode, fileMetadata: Re
         return rightModified - leftModified;
       }
     }
+    if (sortMode === "size") {
+      const leftSize = fileMetadata[left]?.sizeBytes ?? 0;
+      const rightSize = fileMetadata[right]?.sizeBytes ?? 0;
+      if (leftSize !== rightSize) {
+        return rightSize - leftSize;
+      }
+    }
     if (sortMode === "name") {
       const labelComparison = fileLabel(left).localeCompare(fileLabel(right));
       if (labelComparison !== 0) {
@@ -650,21 +658,25 @@ function insertNode(nodes: TreeNodeData[], segments: string[], parentPath: strin
 }
 
 function sortTree(nodes: TreeNodeData[], sortMode: DocumentSortMode): TreeNodeData[] {
-  return nodes
-    .map((node) => ({
-      ...node,
-      children: sortTree(node.children, sortMode),
-    }))
-    .sort((left, right) => {
-      if (sortMode === "path" && left.kind !== right.kind) {
-        return left.kind === "directory" ? -1 : 1;
-      }
+  const mappedNodes = nodes.map((node) => ({
+    ...node,
+    children: sortTree(node.children, sortMode),
+  }));
 
-      const labelComparison = left.name.localeCompare(right.name);
-      if (labelComparison !== 0) {
-        return labelComparison;
-      }
+  if (sortMode === "modified" || sortMode === "size") {
+    return mappedNodes;
+  }
 
-      return left.path.localeCompare(right.path);
-    });
+  return mappedNodes.sort((left, right) => {
+    if (sortMode === "path" && left.kind !== right.kind) {
+      return left.kind === "directory" ? -1 : 1;
+    }
+
+    const labelComparison = left.name.localeCompare(right.name);
+    if (labelComparison !== 0) {
+      return labelComparison;
+    }
+
+    return left.path.localeCompare(right.path);
+  });
 }

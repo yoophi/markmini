@@ -16,7 +16,7 @@ import type { HeadingItem, MarkdownFileMetadata, ScanStatus } from "@/types/cont
 type BootstrapState = "idle" | "loading" | "ready" | "error";
 type DocumentState = "idle" | "loading" | "ready" | "error";
 type DocumentMode = "preview" | "edit";
-type DocumentSortMode = "path" | "name" | "modified";
+type DocumentSortMode = "path" | "name" | "modified" | "size";
 
 interface AppStore {
   bootstrapState: BootstrapState;
@@ -620,7 +620,7 @@ function persistDocumentSortMode(rootDir: string | null, mode: DocumentSortMode)
 }
 
 function isDocumentSortMode(value: string | null): value is DocumentSortMode {
-  return value === "path" || value === "name" || value === "modified";
+  return value === "path" || value === "name" || value === "modified" || value === "size";
 }
 
 function documentSortModeStorageKey(rootDir: string) {

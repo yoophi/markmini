@@ -147,6 +147,22 @@ describe("FileTree search", () => {
     expect(screen.queryByText("Recent")).not.toBeNull();
   });
 
+  it("sorts documents by file size from largest to smallest", () => {
+    renderFileTree({
+      files: ["small.md", "large.md", "missing.md"],
+      fileMetadata: {
+        "small.md": { relativePath: "small.md", modifiedAt: 100, sizeBytes: 10 },
+        "large.md": { relativePath: "large.md", modifiedAt: 100, sizeBytes: 2000 },
+      },
+      sortMode: "size",
+    });
+
+    const treeItems = within(screen.getByRole("tree")).getAllByRole("treeitem");
+    expect(treeItems[0].textContent).toContain("large");
+    expect(treeItems[1].textContent).toContain("small");
+    expect(treeItems[2].textContent).toContain("missing");
+  });
+
   it("sorts documents by modified time when metadata is available", () => {
     renderFileTree({
       files: ["old.md", "new.md"],

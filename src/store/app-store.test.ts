@@ -133,6 +133,20 @@ describe("app store document safety flows", () => {
     expect(JSON.parse(localStorage.getItem("markmini:recent-documents:/vault") ?? "[]")).toEqual(["notes/a.md", "notes/b.md"]);
   });
 
+  it("restores persisted file size sort mode", async () => {
+    localStorage.setItem("markmini:document-sort-mode:/vault", "size");
+    vi.mocked(getInitialSession).mockResolvedValue({
+      rootDir: "/vault",
+      files: [],
+      fileMetadata: [],
+      selectedFile: null,
+    });
+
+    await useAppStore.getState().bootstrap();
+
+    expect(useAppStore.getState().documentSortMode).toBe("size");
+  });
+
   it("falls back to path sort when persisted sort mode is invalid", async () => {
     localStorage.setItem("markmini:document-sort-mode:/vault", "updated-at");
     vi.mocked(getInitialSession).mockResolvedValue({
