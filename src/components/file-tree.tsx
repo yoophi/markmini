@@ -241,6 +241,7 @@ export function FileTree({ files, scanState, skippedCount, selectedFile, onSelec
                     depth={depth}
                     expanded={expandedPaths.has(node.path)}
                     focused={currentFocusPath === node.path}
+                    searchQuery={searchQuery}
                     onFocusItem={setFocusedPath}
                     onToggle={toggleDirectory}
                   />
@@ -268,6 +269,7 @@ function TreeNode({
   depth,
   expanded,
   focused,
+  searchQuery,
   onFocusItem,
   onToggle,
 }: {
@@ -277,6 +279,7 @@ function TreeNode({
   depth: number;
   expanded: boolean;
   focused: boolean;
+  searchQuery: string;
   onFocusItem: (path: string) => void;
   onToggle: (path: string) => void;
 }) {
@@ -308,7 +311,9 @@ function TreeNode({
             <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-hover:text-accent-foreground" />
           )}
           {expanded ? <FolderOpen className="h-4 w-4 shrink-0" /> : <Folder className="h-4 w-4 shrink-0" />}
-          <span className="truncate font-medium">{label}</span>
+          <span className="truncate font-medium">
+            <HighlightedLabel text={label} searchQuery={searchQuery} />
+          </span>
           <span className="ml-auto rounded bg-muted px-1.5 py-0.5 text-[11px] tabular-nums text-muted-foreground">
             {countLeafNodes(node)}
           </span>
@@ -337,9 +342,23 @@ function TreeNode({
         )}
       >
         <FileText className={cn("h-4 w-4 shrink-0", isSelected ? "opacity-90" : "text-muted-foreground")} />
-        <span className="truncate">{label}</span>
+        <span className="truncate">
+          <HighlightedLabel text={label} searchQuery={searchQuery} />
+        </span>
       </button>
     </li>
+  );
+}
+
+function HighlightedLabel({ text, searchQuery }: { text: string; searchQuery: string }) {
+  return splitHighlightedText(text, searchQuery).map((part, index) =>
+    part.highlight ? (
+      <mark key={`${part.text}-${index}`} className="rounded bg-primary/20 px-0.5 text-inherit">
+        {part.text}
+      </mark>
+    ) : (
+      part.text
+    ),
   );
 }
 
@@ -401,6 +420,28 @@ export function filterFiles(files: string[], normalizedSearchQuery: string) {
 
 export function shouldShowSearchClearButton(searchQuery: string) {
   return searchQuery.length > 0;
+}
+
+export function splitHighlightedText(text: string, searchQuery: string) {
+  const query = searchQuery.trim();
+  if (!query) {
+    return [{ text, highlight: false }];
+  }
+
+  const matchIndex = text.toLocaleLowerCase().indexOf(query.toLocaleLowerCase());
+  if (matchIndex === -1) {
+    return [{ text, highlight: false }];
+  }
+
+  const before = text.slice(0, matchIndex);
+  const match = text.slice(matchIndex, matchIndex + query.length);
+  const after = text.slice(matchIndex + query.length);
+
+  return [
+    before ? { text: before, highlight: false } : null,
+    { text: match, highlight: true },
+    after ? { text: after, highlight: false } : null,
+  ].filter((part): part is { text: string; highlight: boolean } => Boolean(part));
 }
 
 export function readStoredSearchQuery() {
