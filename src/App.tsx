@@ -273,8 +273,23 @@ function App() {
   };
 
   const handleDeleteDocument = async () => {
-    await deleteCurrentDocument();
-    setDeleteDialogOpen(false);
+    const execute = async () => {
+      await deleteCurrentDocument();
+      setDeleteDialogOpen(false);
+    };
+
+    if (document.isDirty) {
+      setDeleteDialogOpen(false);
+      setPendingUnsavedAction({
+        title: "삭제 전에 확인해주세요",
+        description: "현재 문서의 저장되지 않은 편집 내용이 있습니다. 저장 후 삭제하거나, 변경사항을 버리고 선택한 문서를 삭제할 수 있습니다.",
+        confirmLabel: "변경사항 버리고 삭제",
+        run: execute,
+      });
+      return;
+    }
+
+    await execute();
   };
 
   const handleConfirmPendingUnsavedAction = async () => {
