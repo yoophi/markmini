@@ -28,6 +28,7 @@ interface AppStore {
   scanSkippedPathSet: ReadonlySet<string>;
   scanError: string | null;
   selectedFile: string | null;
+  recentDocuments: string[];
   documentLoadToken: number;
   isSidebarOpen: boolean;
   documentSearchQuery: string;
@@ -74,6 +75,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
   scanSkippedPathSet: new Set(),
   scanError: null,
   selectedFile: null,
+  recentDocuments: [],
   documentLoadToken: 0,
   isSidebarOpen: false,
   documentSearchQuery: "",
@@ -162,6 +164,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
 
       set({
         selectedFile: document.relativePath,
+        recentDocuments: addRecentDocument(get().recentDocuments, document.relativePath),
         successMessage: null,
         document: createReadyDocument(document.content, document.headings),
       });
@@ -196,6 +199,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
         files,
         fileSet,
         selectedFile: document.relativePath,
+        recentDocuments: addRecentDocument(state.recentDocuments, document.relativePath),
         successMessage: `새 문서를 만들었습니다: ${document.relativePath}`,
         successMessageId: state.successMessageId + 1,
         document: {
@@ -234,6 +238,10 @@ export const useAppStore = create<AppStore>((set, get) => ({
         files,
         fileSet: new Set(files),
         selectedFile: result.document.relativePath,
+        recentDocuments: addRecentDocument(
+          state.recentDocuments.filter((entry) => entry !== result.oldRelativePath),
+          result.document.relativePath,
+        ),
         successMessage: `문서 이름을 변경했습니다: ${result.document.relativePath}`,
         successMessageId: state.successMessageId + 1,
         document: createReadyDocument(result.document.content, result.document.headings),
@@ -261,6 +269,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
         files,
         fileSet: new Set(files),
         selectedFile: result.nextSelectedFile,
+        recentDocuments: state.recentDocuments.filter((entry) => entry !== result.deletedRelativePath),
         successMessage: `문서를 삭제했습니다: ${result.deletedRelativePath}`,
         successMessageId: state.successMessageId + 1,
         document: result.nextSelectedFile ? createLoadingDocument() : createEmptyDocument(),
@@ -501,6 +510,10 @@ function normalizeRelativeMarkdownPath(relativePath: string) {
 
 function isCurrentDocumentLoad(state: AppStore, requestPath: string, loadToken: number) {
   return state.selectedFile === requestPath && state.documentLoadToken === loadToken;
+}
+
+function addRecentDocument(recentDocuments: string[], relativePath: string) {
+  return [relativePath, ...recentDocuments.filter((entry) => entry !== relativePath)].slice(0, 5);
 }
 
 function mergeSortedUnique(current: string[], currentSet: ReadonlySet<string>, incoming: string[]) {

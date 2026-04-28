@@ -22,6 +22,7 @@ function renderFileTree(options: Partial<React.ComponentProps<typeof FileTree>> 
         scanState="completed"
         skippedCount={0}
         selectedFile="docs/guide.md"
+        recentDocuments={[]}
         onSelect={vi.fn()}
         {...options}
         searchQuery={searchQuery}
@@ -37,6 +38,19 @@ function renderFileTree(options: Partial<React.ComponentProps<typeof FileTree>> 
 }
 
 describe("FileTree search", () => {
+  it("shows recent documents and opens them through the normal select flow", () => {
+    const onSelect = vi.fn();
+    renderFileTree({ recentDocuments: ["notes/today.md", "missing.md"], onSelect });
+
+    expect(screen.queryByText("Recent")).not.toBeNull();
+    expect(screen.queryByText("notes/today.md")).not.toBeNull();
+    expect(screen.queryByText("missing.md")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: /today/i }));
+
+    expect(onSelect).toHaveBeenCalledWith("notes/today.md");
+  });
+
   it("filters documents by case-insensitive path match", () => {
     renderFileTree();
 

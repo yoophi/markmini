@@ -36,6 +36,7 @@ function resetStore() {
     scanSkippedPathSet: new Set(),
     scanError: null,
     selectedFile: null,
+    recentDocuments: [],
     documentLoadToken: 0,
     isSidebarOpen: false,
     documentSearchQuery: "",
@@ -67,6 +68,16 @@ describe("app store document safety flows", () => {
     useAppStore.getState().setDocumentSearchQuery("guide");
 
     expect(useAppStore.getState().documentSearchQuery).toBe("guide");
+  });
+
+  it("tracks recently opened documents without duplicates and keeps the list short", async () => {
+    vi.mocked(readMarkdownFile).mockImplementation(async (path) => markdownDocument(path, `# ${path}\n`));
+
+    for (const path of ["a.md", "b.md", "c.md", "d.md", "e.md", "f.md", "c.md"]) {
+      await useAppStore.getState().openDocument(path);
+    }
+
+    expect(useAppStore.getState().recentDocuments).toEqual(["c.md", "f.md", "e.md", "d.md", "b.md"]);
   });
 
   it("saves the dirty draft and clears dirty state", async () => {

@@ -35,6 +35,7 @@ function App() {
   const scanSkippedPaths = useAppStore((state) => state.scanSkippedPaths);
   const scanError = useAppStore((state) => state.scanError);
   const selectedFile = useAppStore((state) => state.selectedFile);
+  const recentDocuments = useAppStore((state) => state.recentDocuments);
   const document = useAppStore((state) => state.document);
   const isSidebarOpen = useAppStore((state) => state.isSidebarOpen);
   const setSidebarOpen = useAppStore((state) => state.setSidebarOpen);
@@ -258,6 +259,7 @@ function App() {
                         scanState={scanState}
                         skippedCount={scanSkippedPaths.length}
                         selectedFile={selectedFile}
+                        recentDocuments={recentDocuments}
                         searchQuery={documentSearchQuery}
                         onSearchQueryChange={setDocumentSearchQuery}
                         onSelect={handleOpenDocument}
@@ -302,6 +304,7 @@ function App() {
                     scanState={scanState}
                     skippedCount={scanSkippedPaths.length}
                     selectedFile={selectedFile}
+                    recentDocuments={recentDocuments}
                     searchQuery={documentSearchQuery}
                     onSearchQueryChange={setDocumentSearchQuery}
                     onSelect={handleOpenDocument}
