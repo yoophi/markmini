@@ -1181,6 +1181,90 @@ mod tests {
     }
 
     #[test]
+    fn metadata_for_files_preserves_file_order_and_prunes_stale_entries() {
+        let mut metadata = HashMap::new();
+        metadata.insert(
+            "notes/a.md".to_string(),
+            MarkdownFileMetadata {
+                relative_path: "notes/a.md".to_string(),
+                modified_at: Some(10),
+            },
+        );
+        metadata.insert(
+            "notes/b.md".to_string(),
+            MarkdownFileMetadata {
+                relative_path: "notes/b.md".to_string(),
+                modified_at: Some(20),
+            },
+        );
+        metadata.insert(
+            "stale.md".to_string(),
+            MarkdownFileMetadata {
+                relative_path: "stale.md".to_string(),
+                modified_at: Some(30),
+            },
+        );
+
+        let files = vec!["notes/b.md".to_string(), "notes/a.md".to_string()];
+        let payload = metadata_for_files(&files, &metadata);
+
+        assert_eq!(
+            payload
+                .iter()
+                .map(|entry| entry.relative_path.as_str())
+                .collect::<Vec<_>>(),
+            vec!["notes/b.md", "notes/a.md"]
+        );
+        assert_eq!(
+            payload
+                .iter()
+                .map(|entry| entry.modified_at)
+                .collect::<Vec<_>>(),
+            vec![Some(20), Some(10)]
+        );
+    }
+
+    #[test]
+    fn merge_metadata_replaces_existing_paths_without_reading_content() {
+        let mut metadata = HashMap::new();
+        metadata.insert(
+            "notes/a.md".to_string(),
+            MarkdownFileMetadata {
+                relative_path: "notes/a.md".to_string(),
+                modified_at: Some(10),
+            },
+        );
+
+        merge_metadata(
+            &mut metadata,
+            &[
+                MarkdownFileMetadata {
+                    relative_path: "notes/a.md".to_string(),
+                    modified_at: Some(100),
+                },
+                MarkdownFileMetadata {
+                    relative_path: "notes/b.md".to_string(),
+                    modified_at: Some(200),
+                },
+            ],
+        );
+
+        assert_eq!(
+            metadata
+                .get("notes/a.md")
+                .and_then(|entry| entry.modified_at),
+            Some(100)
+        );
+        assert_eq!(
+            metadata
+                .get("notes/b.md")
+                .and_then(|entry| entry.modified_at),
+            Some(200)
+        );
+        assert_eq!(metadata.len(), 2);
+    }
+
+    #[test]
     fn pick_default_document_prefers_readme_then_first_file() {
         assert_eq!(
             pick_default_document(&["notes/a.md".to_string(), "README.md".to_string()]),
