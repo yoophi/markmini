@@ -9,6 +9,7 @@ import type { ScanStatus } from "@/types/content";
 
 interface FileTreeProps {
   files: string[];
+  recentDocuments: string[];
   scanState: ScanStatus;
   skippedCount: number;
   selectedFile: string | null;
@@ -17,7 +18,7 @@ interface FileTreeProps {
 
 export const DOCUMENT_TREE_SEARCH_QUERY_STORAGE_KEY = "markmini.documentTree.searchQuery";
 
-export function FileTree({ files, scanState, skippedCount, selectedFile, onSelect }: FileTreeProps) {
+export function FileTree({ files, recentDocuments, scanState, skippedCount, selectedFile, onSelect }: FileTreeProps) {
   const [searchQuery, setSearchQuery] = useState(readStoredSearchQuery);
   const normalizedSearchQuery = searchQuery.trim().toLocaleLowerCase();
   const filteredFiles = useMemo(() => filterFiles(files, normalizedSearchQuery), [files, normalizedSearchQuery]);
@@ -212,6 +213,29 @@ export function FileTree({ files, scanState, skippedCount, selectedFile, onSelec
       <CardContent className="min-h-0 flex-1 p-0">
         <ScrollArea className="h-full">
           <div className="px-2 py-3">
+            {recentDocuments.length > 0 ? (
+              <div className="mb-3 border-b border-border/60 pb-3">
+                <p className="px-2 text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">Recent</p>
+                <div className="mt-2 space-y-0.5">
+                  {recentDocuments.map((path) => (
+                    <button
+                      key={path}
+                      type="button"
+                      className={cn(
+                        "flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
+                        selectedFile === path
+                          ? "bg-primary text-primary-foreground shadow-sm"
+                          : "text-foreground hover:bg-accent hover:text-accent-foreground",
+                      )}
+                      onClick={() => onSelect(path)}
+                    >
+                      <FileText className={cn("h-4 w-4 shrink-0", selectedFile === path ? "opacity-90" : "text-muted-foreground")} />
+                      <span className="truncate">{fileLabel(path)}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
             {selectedFileIsFilteredOut ? (
               <div className="mb-3 rounded-md border border-border bg-muted/40 px-3 py-2 text-xs leading-5 text-muted-foreground">
                 현재 선택된 문서는 검색 결과에 없습니다. 검색어를 지우면 다시 표시됩니다.

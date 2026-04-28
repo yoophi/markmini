@@ -18,6 +18,7 @@ function App() {
   const error = useAppStore((state) => state.error);
   const rootDir = useAppStore((state) => state.rootDir);
   const files = useAppStore((state) => state.files);
+  const recentDocuments = useAppStore((state) => state.recentDocuments);
   const scanState = useAppStore((state) => state.scanState);
   const scanSkippedPaths = useAppStore((state) => state.scanSkippedPaths);
   const scanError = useAppStore((state) => state.scanError);
@@ -79,6 +80,7 @@ function App() {
                   <div className="h-[calc(100vh-72px)] overflow-hidden">
                     <FileTree
                       files={files}
+                      recentDocuments={recentDocuments}
                       scanState={scanState}
                       skippedCount={scanSkippedPaths.length}
                       selectedFile={selectedFile}
@@ -109,6 +111,7 @@ function App() {
               <div className="sticky top-4 h-[calc(100vh-8rem)]">
                 <FileTree
                   files={files}
+                  recentDocuments={recentDocuments}
                   scanState={scanState}
                   skippedCount={scanSkippedPaths.length}
                   selectedFile={selectedFile}

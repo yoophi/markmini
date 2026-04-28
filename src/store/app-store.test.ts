@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { getInitialSession, readMarkdownFile, refreshSession } from "@/lib/tauri";
-import { useAppStore } from "@/store/app-store";
+import { addRecentDocument, pruneDocumentList, useAppStore } from "@/store/app-store";
 import type { HeadingItem, MarkdownDocument } from "@/types/content";
 
 vi.mock("@/lib/tauri", () => ({
@@ -38,6 +38,7 @@ function resetStore() {
     rootDir: null,
     files: [],
     fileSet: new Set(),
+    recentDocuments: [],
     scanState: "idle",
     scanSkippedPaths: [],
     scanSkippedPathSet: new Set(),
@@ -77,6 +78,7 @@ describe("viewer app store", () => {
       rootDir: "/vault",
       files: ["notes/a.md"],
       selectedFile: "notes/a.md",
+      recentDocuments: ["notes/a.md"],
     });
     expect(useAppStore.getState().document).toMatchObject({
       state: "ready",
@@ -155,5 +157,35 @@ describe("viewer app store", () => {
       state: "ready",
       content: "# Existing\n",
     });
+  });
+
+  it("tracks recently opened documents without duplicates", async () => {
+    useAppStore.setState({ files: ["notes/a.md", "notes/b.md"], fileSet: new Set(["notes/a.md", "notes/b.md"]) });
+    vi.mocked(readMarkdownFile)
+      .mockResolvedValueOnce(markdownDocument("notes/a.md", "# A\n"))
+      .mockResolvedValueOnce(markdownDocument("notes/b.md", "# B\n"))
+      .mockResolvedValueOnce(markdownDocument("notes/a.md", "# A again\n"));
+
+    await useAppStore.getState().openDocument("notes/a.md");
+    await useAppStore.getState().openDocument("notes/b.md");
+    await useAppStore.getState().openDocument("notes/a.md");
+
+    expect(useAppStore.getState().recentDocuments).toEqual(["notes/a.md", "notes/b.md"]);
+  });
+});
+
+describe("recent document helpers", () => {
+  it("adds available documents most-recent-first and enforces a limit", () => {
+    const availableFiles = new Set(["a.md", "b.md", "c.md"]);
+
+    expect(addRecentDocument(["b.md", "c.md"], "a.md", availableFiles, 2)).toEqual(["a.md", "b.md"]);
+    expect(addRecentDocument(["a.md", "b.md"], "a.md", availableFiles)).toEqual(["a.md", "b.md"]);
+  });
+
+  it("prunes stale and duplicate document paths", () => {
+    expect(pruneDocumentList(["a.md", "missing.md", "a.md", "b.md"], new Set(["a.md", "b.md"]))).toEqual([
+      "a.md",
+      "b.md",
+    ]);
   });
 });

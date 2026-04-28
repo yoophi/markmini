@@ -13,6 +13,7 @@ interface AppStore {
   rootDir: string | null;
   files: string[];
   fileSet: ReadonlySet<string>;
+  recentDocuments: string[];
   scanState: ScanStatus;
   scanSkippedPaths: string[];
   scanSkippedPathSet: ReadonlySet<string>;
@@ -40,6 +41,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
   rootDir: null,
   files: [],
   fileSet: new Set(),
+  recentDocuments: [],
   scanState: "idle",
   scanSkippedPaths: [],
   scanSkippedPathSet: new Set(),
@@ -100,6 +102,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
         rootDir: session.rootDir,
         files,
         fileSet,
+        recentDocuments: pruneDocumentList(get().recentDocuments, fileSet),
         selectedFile: session.selectedFile,
       });
 
@@ -129,6 +132,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
 
       set({
         selectedFile: document.relativePath,
+        recentDocuments: addRecentDocument(get().recentDocuments, document.relativePath, get().fileSet),
         document: createReadyDocument(document.content, document.headings),
       });
     } catch (error) {
@@ -182,6 +186,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
         rootDir: session.rootDir,
         files,
         fileSet,
+        recentDocuments: pruneDocumentList(previousState.recentDocuments, fileSet),
         selectedFile,
         scanState: "completed",
       });
@@ -258,4 +263,16 @@ function mergeSortedUnique(current: string[], currentSet: ReadonlySet<string>, i
   }
 
   return { values: [...next].sort(), valueSet: next };
+}
+
+export function addRecentDocument(current: string[], documentPath: string, availableFiles: ReadonlySet<string>, limit = 5) {
+  if (!availableFiles.has(documentPath)) {
+    return current;
+  }
+
+  return [documentPath, ...current.filter((path) => path !== documentPath && availableFiles.has(path))].slice(0, limit);
+}
+
+export function pruneDocumentList(paths: string[], availableFiles: ReadonlySet<string>, limit = 5) {
+  return paths.filter((path, index) => index === paths.indexOf(path) && availableFiles.has(path)).slice(0, limit);
 }
