@@ -320,6 +320,8 @@ export function FileTree({
                     node={node}
                     selectedFile={selectedFile}
                     onSelect={onSelect}
+                    fileMetadata={fileMetadata}
+                    sortMode={sortMode}
                     favorite={favoriteDocuments.includes(node.path)}
                     depth={depth}
                     expanded={expandedPaths.has(node.path)}
@@ -350,6 +352,8 @@ function TreeNode({
   node,
   selectedFile,
   onSelect,
+  fileMetadata,
+  sortMode,
   favorite,
   depth,
   expanded,
@@ -362,6 +366,8 @@ function TreeNode({
   node: TreeNodeData;
   selectedFile: string | null;
   onSelect: (relativePath: string) => void;
+  fileMetadata: Record<string, MarkdownFileMetadata>;
+  sortMode: DocumentTreeSortMode;
   favorite: boolean;
   depth: number;
   expanded: boolean;
@@ -374,6 +380,8 @@ function TreeNode({
   const isDirectory = node.kind === "directory";
   const isSelected = selectedFile === node.path;
   const label = isDirectory ? node.name : fileLabel(node.path);
+  const modifiedLabel =
+    sortMode === "modified" && node.kind === "file" ? formatModifiedAt(fileMetadata[node.path]?.modifiedAt) : null;
 
   if (node.kind === "directory") {
     return (
@@ -436,6 +444,11 @@ function TreeNode({
           <span className="truncate">
             <HighlightedLabel text={label} searchQuery={searchQuery} />
           </span>
+          {modifiedLabel ? (
+            <span className={cn("ml-auto shrink-0 text-[11px] tabular-nums", isSelected ? "opacity-80" : "text-muted-foreground")}>
+              {modifiedLabel}
+            </span>
+          ) : null}
         </button>
         <button
           type="button"
@@ -681,4 +694,36 @@ function modifiedAt(node: TreeNodeData, fileMetadata: Record<string, MarkdownFil
   }
 
   return Math.max(0, ...node.children.map((child) => modifiedAt(child, fileMetadata)));
+}
+
+export function formatModifiedAt(modifiedAt: number | null | undefined, now = Date.now()): string | null {
+  if (!modifiedAt) {
+    return null;
+  }
+
+  const diffMs = Math.max(0, now - modifiedAt);
+  const minute = 60 * 1000;
+  const hour = 60 * minute;
+  const day = 24 * hour;
+
+  if (diffMs < minute) {
+    return "방금 전";
+  }
+
+  if (diffMs < hour) {
+    return `${Math.floor(diffMs / minute)}분 전`;
+  }
+
+  if (diffMs < day) {
+    return `${Math.floor(diffMs / hour)}시간 전`;
+  }
+
+  if (diffMs < 7 * day) {
+    return `${Math.floor(diffMs / day)}일 전`;
+  }
+
+  return new Intl.DateTimeFormat("ko-KR", {
+    month: "short",
+    day: "numeric",
+  }).format(new Date(modifiedAt));
 }
