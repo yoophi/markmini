@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  DOCUMENT_TREE_SEARCH_QUERY_STORAGE_KEY,
   DOCUMENT_TREE_SORT_DIRECTION_STORAGE_KEY,
   DOCUMENT_TREE_SORT_MODE_STORAGE_KEY,
   buildTree,
@@ -14,10 +15,14 @@ import {
   formatModifiedAt,
   parseSortDirection,
   parseSortMode,
+  readStoredSearchQuery,
   readStoredSortDirectionForMode,
   readStoredSortDirection,
   readStoredSortMode,
+  shouldShowSearchClearButton,
+  splitHighlightedText,
   treeNodeIndent,
+  writeStoredSearchQuery,
   writeStoredSortDirection,
   writeStoredSortDirectionForMode,
   writeStoredSortMode,
@@ -62,6 +67,67 @@ describe("document tree filtering", () => {
     ]);
   });
 });
+
+describe("document tree search query persistence", () => {
+  it("stores and restores the query in session storage", () => {
+    const sessionStorage = installSessionStorageMock();
+    window.sessionStorage.clear();
+
+    writeStoredSearchQuery("markmini");
+
+    expect(sessionStorage.getItem(DOCUMENT_TREE_SEARCH_QUERY_STORAGE_KEY)).toBe("markmini");
+    expect(readStoredSearchQuery()).toBe("markmini");
+  });
+
+  it("removes the stored query when the query is cleared", () => {
+    const sessionStorage = installSessionStorageMock();
+    sessionStorage.setItem(DOCUMENT_TREE_SEARCH_QUERY_STORAGE_KEY, "guide");
+
+    writeStoredSearchQuery("");
+
+    expect(sessionStorage.getItem(DOCUMENT_TREE_SEARCH_QUERY_STORAGE_KEY)).toBeNull();
+    expect(readStoredSearchQuery()).toBe("");
+  });
+});
+
+describe("document tree search affordances", () => {
+  it("shows the clear affordance only while there is query text", () => {
+    expect(shouldShowSearchClearButton("")).toBe(false);
+    expect(shouldShowSearchClearButton("guide")).toBe(true);
+  });
+});
+
+describe("document tree search highlighting", () => {
+  it("splits the first case-insensitive label match for highlighting", () => {
+    expect(splitHighlightedText("MarkMini Plan", "mini")).toEqual([
+      { text: "Mark", highlight: false },
+      { text: "Mini", highlight: true },
+      { text: " Plan", highlight: false },
+    ]);
+  });
+
+  it("does not highlight when the query is empty or missing from the label", () => {
+    expect(splitHighlightedText("Guide", "")).toEqual([{ text: "Guide", highlight: false }]);
+    expect(splitHighlightedText("Guide", "plan")).toEqual([{ text: "Guide", highlight: false }]);
+  });
+});
+
+function installSessionStorageMock() {
+  const values = new Map<string, string>();
+  const sessionStorage = {
+    clear: () => values.clear(),
+    getItem: (key: string) => values.get(key) ?? null,
+    removeItem: (key: string) => values.delete(key),
+    setItem: (key: string, value: string) => values.set(key, value),
+  };
+
+  Object.defineProperty(globalThis, "window", {
+    value: { sessionStorage },
+    configurable: true,
+  });
+
+  return sessionStorage;
+}
 
 describe("file tree structure", () => {
   it("preserves every parent directory for deeply nested markdown files", () => {

@@ -19,6 +19,8 @@ function App() {
   const rootDir = useAppStore((state) => state.rootDir);
   const files = useAppStore((state) => state.files);
   const fileMetadata = useAppStore((state) => state.fileMetadata);
+  const recentDocuments = useAppStore((state) => state.recentDocuments);
+  const favoriteDocuments = useAppStore((state) => state.favoriteDocuments);
   const scanState = useAppStore((state) => state.scanState);
   const scanSkippedPaths = useAppStore((state) => state.scanSkippedPaths);
   const scanError = useAppStore((state) => state.scanError);
@@ -26,6 +28,7 @@ function App() {
   const document = useAppStore((state) => state.document);
   const isSidebarOpen = useAppStore((state) => state.isSidebarOpen);
   const setSidebarOpen = useAppStore((state) => state.setSidebarOpen);
+  const toggleFavoriteDocument = useAppStore((state) => state.toggleFavoriteDocument);
 
   useEffect(() => {
     void bootstrap();
@@ -82,6 +85,8 @@ function App() {
                       rootDir={rootDir}
                       files={files}
                       fileMetadata={fileMetadata}
+                      recentDocuments={recentDocuments}
+                      favoriteDocuments={favoriteDocuments}
                       scanState={scanState}
                       skippedCount={scanSkippedPaths.length}
                       selectedFile={selectedFile}
@@ -89,6 +94,7 @@ function App() {
                         void openDocument(file);
                         setSidebarOpen(false);
                       }}
+                      onToggleFavorite={toggleFavoriteDocument}
                     />
                   </div>
                 </SheetContent>
@@ -114,10 +120,13 @@ function App() {
                   rootDir={rootDir}
                   files={files}
                   fileMetadata={fileMetadata}
+                  recentDocuments={recentDocuments}
+                  favoriteDocuments={favoriteDocuments}
                   scanState={scanState}
                   skippedCount={scanSkippedPaths.length}
                   selectedFile={selectedFile}
                   onSelect={(file) => void openDocument(file)}
+                  onToggleFavorite={toggleFavoriteDocument}
                 />
               </div>
             </aside>
