@@ -1360,3 +1360,78 @@ fn slugify(value: &str) -> String {
 
     slug.trim_matches('-').to_string()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::{
+        fs,
+        time::{SystemTime, UNIX_EPOCH},
+    };
+
+    struct TestDir {
+        path: PathBuf,
+    }
+
+    impl TestDir {
+        fn new() -> Self {
+            let unique = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("system time should be after unix epoch")
+                .as_nanos();
+            let path =
+                env::temp_dir().join(format!("markmini-test-{}-{}", std::process::id(), unique));
+            fs::create_dir_all(&path).expect("test directory should be created");
+            Self { path }
+        }
+    }
+
+    impl Drop for TestDir {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.path);
+        }
+    }
+
+    #[test]
+    fn markdown_file_metadata_contains_path_and_modified_time_without_content() {
+        let temp = TestDir::new();
+        let file_path = temp.path.join("note.md");
+        fs::write(&file_path, "# Secret content\n").expect("markdown file should be written");
+
+        let metadata = markdown_file_metadata(&file_path, "note.md");
+        let json = serde_json::to_value(&metadata).expect("metadata should serialize");
+
+        assert_eq!(metadata.relative_path, "note.md");
+        assert!(metadata.modified_at.is_some());
+        assert_eq!(
+            json.get("relativePath").and_then(|value| value.as_str()),
+            Some("note.md")
+        );
+        assert!(json
+            .get("modifiedAt")
+            .and_then(|value| value.as_u64())
+            .is_some());
+        assert!(json.get("content").is_none());
+    }
+
+    #[test]
+    fn collect_markdown_file_metadata_skips_non_markdown_and_skipped_dirs() {
+        let temp = TestDir::new();
+        fs::write(temp.path.join("README.md"), "# Readme\n")
+            .expect("markdown file should be written");
+        fs::write(temp.path.join("notes.txt"), "not markdown\n")
+            .expect("text file should be written");
+        fs::create_dir_all(temp.path.join("node_modules/pkg"))
+            .expect("skipped directory should be created");
+        fs::write(temp.path.join("node_modules/pkg/hidden.md"), "# Hidden\n")
+            .expect("hidden markdown should be written");
+
+        let mut metadata = collect_markdown_file_metadata(&temp.path, &temp.path)
+            .expect("metadata should be collected");
+        metadata.sort_by(|left, right| left.relative_path.cmp(&right.relative_path));
+
+        assert_eq!(metadata.len(), 1);
+        assert_eq!(metadata[0].relative_path, "README.md");
+        assert!(metadata[0].modified_at.is_some());
+    }
+}
