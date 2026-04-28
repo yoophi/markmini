@@ -6,6 +6,7 @@ import {
   documentTreeSortModeStorageKey,
   filterFiles,
   flattenVisibleTree,
+  formatFileSize,
   formatModifiedAt,
   parseSortMode,
   readStoredSortMode,
@@ -162,7 +163,7 @@ describe("document tree sorting", () => {
   });
 });
 
-describe("modified time labels", () => {
+describe("metadata labels", () => {
   it("formats recent modified times without exposing file content", () => {
     const now = Date.UTC(2026, 3, 28, 13, 0, 0);
 
@@ -171,6 +172,15 @@ describe("modified time labels", () => {
     expect(formatModifiedAt(now - 5 * 60_000, now)).toBe("5분 전");
     expect(formatModifiedAt(now - 3 * 60 * 60_000, now)).toBe("3시간 전");
     expect(formatModifiedAt(now - 2 * 24 * 60 * 60_000, now)).toBe("2일 전");
+  });
+
+  it("formats file sizes from content-free metadata", () => {
+    expect(formatFileSize(null)).toBeNull();
+    expect(formatFileSize(0)).toBe("0 B");
+    expect(formatFileSize(512)).toBe("512 B");
+    expect(formatFileSize(1536)).toBe("1.5 KB");
+    expect(formatFileSize(12 * 1024)).toBe("12 KB");
+    expect(formatFileSize(2.5 * 1024 * 1024)).toBe("2.5 MB");
   });
 });
 
