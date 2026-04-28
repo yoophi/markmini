@@ -7,6 +7,7 @@ import {
   flattenVisibleTree,
   readStoredSearchQuery,
   shouldShowSearchClearButton,
+  splitHighlightedText,
   treeNodeIndent,
   writeStoredSearchQuery,
 } from "./file-tree";
@@ -77,6 +78,21 @@ describe("document tree search affordances", () => {
   it("shows the clear affordance only while there is query text", () => {
     expect(shouldShowSearchClearButton("")).toBe(false);
     expect(shouldShowSearchClearButton("guide")).toBe(true);
+  });
+});
+
+describe("document tree search highlighting", () => {
+  it("splits the first case-insensitive label match for highlighting", () => {
+    expect(splitHighlightedText("MarkMini Plan", "mini")).toEqual([
+      { text: "Mark", highlight: false },
+      { text: "Mini", highlight: true },
+      { text: " Plan", highlight: false },
+    ]);
+  });
+
+  it("does not highlight when the query is empty or missing from the label", () => {
+    expect(splitHighlightedText("Guide", "")).toEqual([{ text: "Guide", highlight: false }]);
+    expect(splitHighlightedText("Guide", "plan")).toEqual([{ text: "Guide", highlight: false }]);
   });
 });
 
