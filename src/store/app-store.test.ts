@@ -80,7 +80,7 @@ describe("viewer app store", () => {
     vi.mocked(getInitialSession).mockResolvedValue({
       rootDir: "/vault",
       files: ["notes/a.md"],
-      fileMetadata: [{ relativePath: "notes/a.md", modifiedAt: 10 }],
+      fileMetadata: [{ relativePath: "notes/a.md", modifiedAt: 10, sizeBytes: 100 }],
       selectedFile: "notes/a.md",
     });
     vi.mocked(readMarkdownFile).mockResolvedValue(markdownDocument("notes/a.md", "# Title\n"));
@@ -177,7 +177,7 @@ describe("viewer app store", () => {
     vi.mocked(refreshSession).mockResolvedValue({
       rootDir: "/vault",
       files: ["notes/a.md", "notes/b.md"],
-      fileMetadata: [{ relativePath: "notes/a.md", modifiedAt: 20 }],
+      fileMetadata: [{ relativePath: "notes/a.md", modifiedAt: 20, sizeBytes: 200 }],
       selectedFile: "notes/a.md",
     });
     vi.mocked(readMarkdownFile).mockResolvedValue(markdownDocument("notes/a.md", "# Reloaded\n", []));

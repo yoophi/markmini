@@ -32,6 +32,7 @@ struct InitialSession {
 struct MarkdownFileMetadata {
     relative_path: String,
     modified_at: Option<u64>,
+    size_bytes: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -902,13 +903,16 @@ fn visit_dir_streaming(
 }
 
 fn markdown_file_metadata(relative_path: String, path: &Path) -> MarkdownFileMetadata {
+    let metadata = fs::metadata(path).ok();
+
     MarkdownFileMetadata {
         relative_path,
-        modified_at: fs::metadata(path)
-            .ok()
+        modified_at: metadata
+            .as_ref()
             .and_then(|metadata| metadata.modified().ok())
             .and_then(|modified| modified.duration_since(std::time::UNIX_EPOCH).ok())
             .map(|duration| duration.as_millis() as u64),
+        size_bytes: metadata.as_ref().map(|metadata| metadata.len()),
     }
 }
 
@@ -1163,13 +1167,10 @@ mod tests {
     }
 
     #[test]
-    fn collect_markdown_file_entries_includes_modified_time_without_content() {
+    fn collect_markdown_file_entries_includes_metadata_without_content() {
         let temp = TestDir::new();
-        fs::write(
-            temp.path.join("visible.md"),
-            "# Secret content stays on disk\n",
-        )
-        .expect("markdown file should be written");
+        let content = "# Secret content stays on disk\n";
+        fs::write(temp.path.join("visible.md"), content).expect("markdown file should be written");
 
         let canonical_root = temp.canonical_path();
         let files = collect_markdown_file_entries(&canonical_root, &canonical_root)
@@ -1178,6 +1179,7 @@ mod tests {
         assert_eq!(files.len(), 1);
         assert_eq!(files[0].relative_path, "visible.md");
         assert!(files[0].modified_at.is_some());
+        assert_eq!(files[0].size_bytes, Some(content.len() as u64));
     }
 
     #[test]
@@ -1188,6 +1190,7 @@ mod tests {
             MarkdownFileMetadata {
                 relative_path: "notes/a.md".to_string(),
                 modified_at: Some(10),
+                size_bytes: Some(100),
             },
         );
         metadata.insert(
@@ -1195,6 +1198,7 @@ mod tests {
             MarkdownFileMetadata {
                 relative_path: "notes/b.md".to_string(),
                 modified_at: Some(20),
+                size_bytes: Some(200),
             },
         );
         metadata.insert(
@@ -1202,6 +1206,7 @@ mod tests {
             MarkdownFileMetadata {
                 relative_path: "stale.md".to_string(),
                 modified_at: Some(30),
+                size_bytes: Some(300),
             },
         );
 
@@ -1222,6 +1227,13 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![Some(20), Some(10)]
         );
+        assert_eq!(
+            payload
+                .iter()
+                .map(|entry| entry.size_bytes)
+                .collect::<Vec<_>>(),
+            vec![Some(200), Some(100)]
+        );
     }
 
     #[test]
@@ -1232,6 +1244,7 @@ mod tests {
             MarkdownFileMetadata {
                 relative_path: "notes/a.md".to_string(),
                 modified_at: Some(10),
+                size_bytes: Some(100),
             },
         );
 
@@ -1241,10 +1254,12 @@ mod tests {
                 MarkdownFileMetadata {
                     relative_path: "notes/a.md".to_string(),
                     modified_at: Some(100),
+                    size_bytes: Some(1_000),
                 },
                 MarkdownFileMetadata {
                     relative_path: "notes/b.md".to_string(),
                     modified_at: Some(200),
+                    size_bytes: Some(2_000),
                 },
             ],
         );
@@ -1260,6 +1275,12 @@ mod tests {
                 .get("notes/b.md")
                 .and_then(|entry| entry.modified_at),
             Some(200)
+        );
+        assert_eq!(
+            metadata
+                .get("notes/a.md")
+                .and_then(|entry| entry.size_bytes),
+            Some(1_000)
         );
         assert_eq!(metadata.len(), 2);
     }

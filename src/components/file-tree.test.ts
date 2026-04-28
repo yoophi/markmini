@@ -216,10 +216,10 @@ describe("document tree sorting", () => {
       ["old.md", "docs/older.md", "docs/newer.md", "notes/latest.md"],
       "modified",
       {
-        "old.md": { relativePath: "old.md", modifiedAt: 10 },
-        "docs/older.md": { relativePath: "docs/older.md", modifiedAt: 20 },
-        "docs/newer.md": { relativePath: "docs/newer.md", modifiedAt: 30 },
-        "notes/latest.md": { relativePath: "notes/latest.md", modifiedAt: 40 },
+        "old.md": { relativePath: "old.md", modifiedAt: 10, sizeBytes: 100 },
+        "docs/older.md": { relativePath: "docs/older.md", modifiedAt: 20, sizeBytes: 200 },
+        "docs/newer.md": { relativePath: "docs/newer.md", modifiedAt: 30, sizeBytes: 300 },
+        "notes/latest.md": { relativePath: "notes/latest.md", modifiedAt: 40, sizeBytes: 400 },
       },
     );
 
