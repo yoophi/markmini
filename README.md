@@ -89,13 +89,17 @@ pnpm dev
 
 ## 검증
 
+PR을 열기 전에는 아래 순서로 로컬 검증을 실행합니다.
+
 ```bash
+pnpm test
 pnpm typecheck
-cargo check --manifest-path src-tauri/Cargo.toml
 pnpm build
+cargo test --manifest-path src-tauri/Cargo.toml
+cargo check --manifest-path src-tauri/Cargo.toml
 ```
 
-빌드·설치·macOS Gatekeeper 대응 등 자세한 내용은 [빌드 및 설치 가이드](./docs/build-and-install.md)를 참고하세요.
+빌드·설치·macOS Gatekeeper 대응과 aggregate validation script는 [빌드 및 설치 가이드](./docs/build-and-install.md)를 참고하세요.
 
 ## 기술 스택
 
