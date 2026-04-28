@@ -11,6 +11,7 @@ use std::{
         mpsc, Mutex,
     },
     thread,
+    time::UNIX_EPOCH,
 };
 use tauri::{Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 
@@ -23,7 +24,15 @@ use tauri::{Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 struct InitialSession {
     root_dir: String,
     files: Vec<String>,
+    file_metadata: Vec<MarkdownFileMetadata>,
     selected_file: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct MarkdownFileMetadata {
+    relative_path: String,
+    modified_at: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -38,8 +47,23 @@ struct HeadingItem {
 #[serde(rename_all = "camelCase")]
 struct MarkdownDocument {
     relative_path: String,
+    file_metadata: MarkdownFileMetadata,
     content: String,
     headings: Vec<HeadingItem>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RenameMarkdownResult {
+    old_relative_path: String,
+    document: MarkdownDocument,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DeleteMarkdownResult {
+    deleted_relative_path: String,
+    next_selected_file: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -47,6 +71,7 @@ struct SessionState {
     root_dir: PathBuf,
     canonical_root_dir: PathBuf,
     files: Vec<String>,
+    file_metadata: Vec<MarkdownFileMetadata>,
     selected_file: Option<String>,
 }
 
@@ -57,7 +82,7 @@ struct AppState {
 }
 
 enum ScanEntry {
-    File(String),
+    File(MarkdownFileMetadata),
     Skipped(String),
 }
 
@@ -80,6 +105,7 @@ enum ScanStatus {
 #[serde(rename_all = "camelCase")]
 struct ScanProgressPayload {
     files: Vec<String>,
+    file_metadata: Vec<MarkdownFileMetadata>,
     selected_file: Option<String>,
     status: ScanStatus,
     skipped_paths: Vec<String>,
@@ -111,6 +137,7 @@ fn get_initial_session(
     Ok(InitialSession {
         root_dir: session.root_dir.to_string_lossy().to_string(),
         files: session.files.clone(),
+        file_metadata: session.file_metadata.clone(),
         selected_file: session.selected_file.clone(),
     })
 }
@@ -129,8 +156,13 @@ fn refresh_session(
         .get_mut(window.label())
         .ok_or_else(|| format!("no session for window {}", window.label()))?;
 
-    let mut files = collect_markdown_files(&session.root_dir, &session.canonical_root_dir)?;
-    files.sort();
+    let mut file_metadata =
+        collect_markdown_file_metadata(&session.root_dir, &session.canonical_root_dir)?;
+    file_metadata.sort_by(|left, right| left.relative_path.cmp(&right.relative_path));
+    let files = file_metadata
+        .iter()
+        .map(|metadata| metadata.relative_path.clone())
+        .collect::<Vec<_>>();
 
     let selected_file = match &session.selected_file {
         Some(current) if files.iter().any(|entry| entry == current) => Some(current.clone()),
@@ -138,11 +170,13 @@ fn refresh_session(
     };
 
     session.files = files.clone();
+    session.file_metadata = file_metadata.clone();
     session.selected_file = selected_file.clone();
 
     Ok(InitialSession {
         root_dir: session.root_dir.to_string_lossy().to_string(),
         files,
+        file_metadata,
         selected_file,
     })
 }
@@ -179,9 +213,11 @@ fn read_markdown_file(
             error
         )
     })?;
+    let file_metadata = markdown_file_metadata(&canonical_file, &relative_path);
 
     Ok(MarkdownDocument {
         relative_path,
+        file_metadata,
         headings: extract_headings(&content),
         content,
     })
@@ -194,13 +230,13 @@ fn write_markdown_file(
     window: tauri::WebviewWindow,
     state: tauri::State<'_, AppState>,
 ) -> Result<MarkdownDocument, String> {
-    let sessions = state
+    let mut sessions = state
         .sessions
         .lock()
         .map_err(|_| "failed to acquire sessions lock".to_string())?;
 
     let session = sessions
-        .get(window.label())
+        .get_mut(window.label())
         .ok_or_else(|| format!("no session for window {}", window.label()))?;
 
     if !session.files.iter().any(|entry| entry == &relative_path) {
@@ -221,11 +257,204 @@ fn write_markdown_file(
             error
         )
     })?;
+    let file_metadata = markdown_file_metadata(&canonical_file, &relative_path);
+    upsert_file_metadata(&mut session.file_metadata, file_metadata.clone());
 
     Ok(MarkdownDocument {
         relative_path,
+        file_metadata,
         headings: extract_headings(&content),
         content,
+    })
+}
+
+#[tauri::command]
+fn create_markdown_file(
+    relative_path: String,
+    content: Option<String>,
+    window: tauri::WebviewWindow,
+    state: tauri::State<'_, AppState>,
+) -> Result<MarkdownDocument, String> {
+    let mut sessions = state
+        .sessions
+        .lock()
+        .map_err(|_| "failed to acquire sessions lock".to_string())?;
+
+    let session = sessions
+        .get_mut(window.label())
+        .ok_or_else(|| format!("no session for window {}", window.label()))?;
+
+    let file_path = create_session_markdown_path(session, &relative_path)?;
+    if let Some(parent) = file_path.parent() {
+        fs::create_dir_all(parent).map_err(|error| {
+            format!(
+                "failed to create parent directory {}: {}",
+                parent.display(),
+                error
+            )
+        })?;
+    }
+
+    let content = content.unwrap_or_default();
+    fs::write(&file_path, &content).map_err(|error| {
+        format!(
+            "failed to create markdown file {}: {}",
+            file_path.display(),
+            error
+        )
+    })?;
+
+    if !session.files.iter().any(|entry| entry == &relative_path) {
+        session.files.push(relative_path.clone());
+        session.files.sort();
+    }
+    let file_metadata = markdown_file_metadata(&file_path, &relative_path);
+    upsert_file_metadata(&mut session.file_metadata, file_metadata.clone());
+    session.selected_file = Some(relative_path.clone());
+
+    Ok(MarkdownDocument {
+        relative_path,
+        file_metadata,
+        headings: extract_headings(&content),
+        content,
+    })
+}
+
+#[tauri::command]
+fn rename_markdown_file(
+    from_relative_path: String,
+    to_relative_path: String,
+    window: tauri::WebviewWindow,
+    state: tauri::State<'_, AppState>,
+) -> Result<RenameMarkdownResult, String> {
+    let mut sessions = state
+        .sessions
+        .lock()
+        .map_err(|_| "failed to acquire sessions lock".to_string())?;
+
+    let session = sessions
+        .get_mut(window.label())
+        .ok_or_else(|| format!("no session for window {}", window.label()))?;
+
+    if !session
+        .files
+        .iter()
+        .any(|entry| entry == &from_relative_path)
+    {
+        return Err(format!(
+            "document is not available in the current root: {}",
+            from_relative_path
+        ));
+    }
+
+    if from_relative_path == to_relative_path {
+        return Err("new path must be different from the current path".to_string());
+    }
+
+    let from_file_path = session.root_dir.join(&from_relative_path);
+    let canonical_from = canonical_file_inside_root(
+        &session.canonical_root_dir,
+        &from_file_path,
+        &from_relative_path,
+    )?;
+    let target_file_path = create_session_markdown_path(session, &to_relative_path)?;
+
+    if let Some(parent) = target_file_path.parent() {
+        fs::create_dir_all(parent).map_err(|error| {
+            format!(
+                "failed to create parent directory {}: {}",
+                parent.display(),
+                error
+            )
+        })?;
+    }
+
+    fs::rename(&canonical_from, &target_file_path).map_err(|error| {
+        format!(
+            "failed to rename markdown file {} -> {}: {}",
+            from_relative_path, to_relative_path, error
+        )
+    })?;
+
+    session.files.retain(|entry| entry != &from_relative_path);
+    session.files.push(to_relative_path.clone());
+    session.files.sort();
+    session
+        .file_metadata
+        .retain(|entry| entry.relative_path != from_relative_path);
+    let file_metadata = markdown_file_metadata(&target_file_path, &to_relative_path);
+    upsert_file_metadata(&mut session.file_metadata, file_metadata.clone());
+    if session.selected_file.as_deref() == Some(&from_relative_path) {
+        session.selected_file = Some(to_relative_path.clone());
+    }
+
+    let content = fs::read_to_string(&target_file_path).map_err(|error| {
+        format!(
+            "failed to read renamed markdown file {}: {}",
+            target_file_path.display(),
+            error
+        )
+    })?;
+
+    Ok(RenameMarkdownResult {
+        old_relative_path: from_relative_path,
+        document: MarkdownDocument {
+            relative_path: to_relative_path,
+            file_metadata,
+            headings: extract_headings(&content),
+            content,
+        },
+    })
+}
+
+#[tauri::command]
+fn delete_markdown_file(
+    relative_path: String,
+    window: tauri::WebviewWindow,
+    state: tauri::State<'_, AppState>,
+) -> Result<DeleteMarkdownResult, String> {
+    let mut sessions = state
+        .sessions
+        .lock()
+        .map_err(|_| "failed to acquire sessions lock".to_string())?;
+
+    let session = sessions
+        .get_mut(window.label())
+        .ok_or_else(|| format!("no session for window {}", window.label()))?;
+
+    if !session.files.iter().any(|entry| entry == &relative_path) {
+        return Err(format!(
+            "document is not available in the current root: {}",
+            relative_path
+        ));
+    }
+
+    let file_path = session.root_dir.join(&relative_path);
+    let canonical_file =
+        canonical_file_inside_root(&session.canonical_root_dir, &file_path, &relative_path)?;
+    fs::remove_file(&canonical_file).map_err(|error| {
+        format!(
+            "failed to delete markdown file {}: {}",
+            canonical_file.display(),
+            error
+        )
+    })?;
+
+    session.files.retain(|entry| entry != &relative_path);
+    session
+        .file_metadata
+        .retain(|entry| entry.relative_path != relative_path);
+    let next_selected_file = if session.selected_file.as_deref() == Some(&relative_path) {
+        let next = pick_default_document(&session.files);
+        session.selected_file = next.clone();
+        next
+    } else {
+        session.selected_file.clone()
+    };
+
+    Ok(DeleteMarkdownResult {
+        deleted_relative_path: relative_path,
+        next_selected_file,
     })
 }
 
@@ -248,6 +477,7 @@ pub fn run() {
         root_dir: initial_root_dir.clone(),
         canonical_root_dir: initial_root_dir.clone(),
         files: Vec::new(),
+        file_metadata: Vec::new(),
         selected_file: None,
     };
 
@@ -283,7 +513,10 @@ pub fn run() {
             get_initial_session,
             refresh_session,
             read_markdown_file,
-            write_markdown_file
+            write_markdown_file,
+            create_markdown_file,
+            rename_markdown_file,
+            delete_markdown_file
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -318,6 +551,7 @@ fn populate_session_async(
         SCAN_PROGRESS_EVENT,
         ScanProgressPayload {
             files: Vec::new(),
+            file_metadata: Vec::new(),
             selected_file: None,
             status: ScanStatus::Scanning,
             skipped_paths: Vec::new(),
@@ -326,14 +560,18 @@ fn populate_session_async(
     );
 
     let mut files = Vec::<String>::new();
+    let mut file_metadata = Vec::<MarkdownFileMetadata>::new();
     let mut pending_files = Vec::<String>::new();
+    let mut pending_file_metadata = Vec::<MarkdownFileMetadata>::new();
     let mut skipped_paths = Vec::<String>::new();
     let mut pending_skipped_paths = Vec::<String>::new();
     let mut selected_file = None::<String>;
 
     let flush_progress = |app_handle: &tauri::AppHandle,
                           files: &mut Vec<String>,
+                          file_metadata: &mut Vec<MarkdownFileMetadata>,
                           pending_files: &mut Vec<String>,
+                          pending_file_metadata: &mut Vec<MarkdownFileMetadata>,
                           pending_skipped_paths: &mut Vec<String>,
                           selected_file: &mut Option<String>| {
         if pending_files.is_empty() && pending_skipped_paths.is_empty() {
@@ -356,15 +594,19 @@ fn populate_session_async(
             let mut sessions = state.sessions.lock().expect("sessions lock poisoned");
             if let Some(session) = sessions.get_mut(label) {
                 merge_sorted_unique(&mut session.files, pending_files);
+                merge_file_metadata(&mut session.file_metadata, pending_file_metadata);
                 session.selected_file = selected_file.clone();
             }
         }
 
         merge_sorted_unique(files, pending_files);
+        merge_file_metadata(file_metadata, pending_file_metadata);
 
         let emitted_files = pending_files.clone();
+        let emitted_file_metadata = pending_file_metadata.clone();
         let emitted_skipped_paths = pending_skipped_paths.clone();
         pending_files.clear();
+        pending_file_metadata.clear();
         pending_skipped_paths.clear();
 
         let _ = app_handle.emit_to(
@@ -372,6 +614,7 @@ fn populate_session_async(
             SCAN_PROGRESS_EVENT,
             ScanProgressPayload {
                 files: emitted_files,
+                file_metadata: emitted_file_metadata,
                 selected_file: selected_file.clone(),
                 status: ScanStatus::Scanning,
                 skipped_paths: emitted_skipped_paths,
@@ -382,7 +625,10 @@ fn populate_session_async(
 
     let scan_result = visit_dir_streaming(&root_dir, &root_dir, &mut |entry| {
         match entry {
-            ScanEntry::File(relative) => pending_files.push(relative),
+            ScanEntry::File(metadata) => {
+                pending_files.push(metadata.relative_path.clone());
+                pending_file_metadata.push(metadata);
+            }
             ScanEntry::Skipped(skipped) => {
                 skipped_paths.push(skipped.clone());
                 pending_skipped_paths.push(skipped);
@@ -394,7 +640,9 @@ fn populate_session_async(
             flush_progress(
                 app_handle,
                 &mut files,
+                &mut file_metadata,
                 &mut pending_files,
+                &mut pending_file_metadata,
                 &mut pending_skipped_paths,
                 &mut selected_file,
             );
@@ -404,7 +652,9 @@ fn populate_session_async(
     flush_progress(
         app_handle,
         &mut files,
+        &mut file_metadata,
         &mut pending_files,
+        &mut pending_file_metadata,
         &mut pending_skipped_paths,
         &mut selected_file,
     );
@@ -416,6 +666,7 @@ fn populate_session_async(
 
     files.sort();
     files.dedup();
+    file_metadata.sort_by(|left, right| left.relative_path.cmp(&right.relative_path));
 
     if selected_file.is_none() {
         selected_file = match &selected_hint_relative {
@@ -434,6 +685,7 @@ fn populate_session_async(
         let mut sessions = state.sessions.lock().expect("sessions lock poisoned");
         if let Some(session) = sessions.get_mut(label) {
             session.files = files.clone();
+            session.file_metadata = file_metadata.clone();
             session.selected_file = selected_file.clone();
         }
     }
@@ -443,6 +695,7 @@ fn populate_session_async(
         SCAN_PROGRESS_EVENT,
         ScanProgressPayload {
             files,
+            file_metadata,
             selected_file,
             status: final_status,
             skipped_paths,
@@ -500,6 +753,7 @@ fn handle_new_instance(app: &tauri::AppHandle, argv: Vec<String>, cwd: String) {
                 root_dir: root_dir.clone(),
                 canonical_root_dir: root_dir.clone(),
                 files: Vec::new(),
+                file_metadata: Vec::new(),
                 selected_file: None,
             },
         );
@@ -787,10 +1041,10 @@ fn dedupe_paths(paths: Vec<PathBuf>) -> Vec<PathBuf> {
 // File scanning
 // ---------------------------------------------------------------------------
 
-fn collect_markdown_files(
+fn collect_markdown_file_metadata(
     root_dir: &Path,
     canonical_root_dir: &Path,
-) -> Result<Vec<String>, String> {
+) -> Result<Vec<MarkdownFileMetadata>, String> {
     let mut files = Vec::new();
     visit_dir(root_dir, canonical_root_dir, root_dir, &mut files)?;
     Ok(files)
@@ -800,7 +1054,7 @@ fn visit_dir(
     root_dir: &Path,
     canonical_root_dir: &Path,
     directory: &Path,
-    files: &mut Vec<String>,
+    files: &mut Vec<MarkdownFileMetadata>,
 ) -> Result<(), String> {
     let entries = match fs::read_dir(directory) {
         Ok(entries) => entries,
@@ -829,7 +1083,7 @@ fn visit_dir(
 
         if is_markdown_file(&path) && canonical_path_is_inside_root(canonical_root_dir, &path) {
             if let Some(relative) = path_to_relative(root_dir, &path) {
-                files.push(relative);
+                files.push(markdown_file_metadata(&path, &relative));
             }
         }
     }
@@ -880,7 +1134,7 @@ fn visit_dir_streaming(
 
         if is_markdown_file(&path) && canonical_path_is_inside_root(root_dir, &path) {
             if let Some(relative) = path_to_relative(root_dir, &path) {
-                on_entry(ScanEntry::File(relative));
+                on_entry(ScanEntry::File(markdown_file_metadata(&path, &relative)));
             }
         }
     }
@@ -896,6 +1150,36 @@ fn merge_sorted_unique(target: &mut Vec<String>, incoming: &[String]) {
     }
     target.sort();
     target.dedup();
+}
+
+fn merge_file_metadata(target: &mut Vec<MarkdownFileMetadata>, incoming: &[MarkdownFileMetadata]) {
+    for metadata in incoming {
+        upsert_file_metadata(target, metadata.clone());
+    }
+    target.sort_by(|left, right| left.relative_path.cmp(&right.relative_path));
+}
+
+fn upsert_file_metadata(target: &mut Vec<MarkdownFileMetadata>, metadata: MarkdownFileMetadata) {
+    if let Some(existing) = target
+        .iter_mut()
+        .find(|entry| entry.relative_path == metadata.relative_path)
+    {
+        *existing = metadata;
+        return;
+    }
+
+    target.push(metadata);
+}
+
+fn markdown_file_metadata(path: &Path, relative_path: &str) -> MarkdownFileMetadata {
+    MarkdownFileMetadata {
+        relative_path: relative_path.to_string(),
+        modified_at: fs::metadata(path)
+            .and_then(|metadata| metadata.modified())
+            .ok()
+            .and_then(|modified| modified.duration_since(UNIX_EPOCH).ok())
+            .map(|duration| duration.as_millis() as u64),
+    }
 }
 
 fn should_skip_dir(path: &Path) -> bool {
@@ -940,6 +1224,47 @@ fn canonical_file_inside_root(
     }
 
     Ok(canonical_file)
+}
+
+fn create_session_markdown_path(
+    session: &SessionState,
+    relative_path: &str,
+) -> Result<PathBuf, String> {
+    let relative = Path::new(relative_path);
+    if relative_path.trim().is_empty()
+        || relative.is_absolute()
+        || relative
+            .components()
+            .any(|component| !matches!(component, std::path::Component::Normal(_)))
+    {
+        return Err(format!("invalid relative markdown path: {}", relative_path));
+    }
+
+    let file_path = session.root_dir.join(relative);
+    if !is_markdown_file(&file_path) {
+        return Err(format!(
+            "document is not a markdown file: {}",
+            relative_path
+        ));
+    }
+
+    if session.files.iter().any(|entry| entry == relative_path) || file_path.exists() {
+        return Err(format!("document already exists: {}", relative_path));
+    }
+
+    let canonical_parent = file_path
+        .parent()
+        .unwrap_or(&session.root_dir)
+        .canonicalize()
+        .unwrap_or_else(|_| session.root_dir.clone());
+    if !canonical_parent.starts_with(&session.canonical_root_dir) {
+        return Err(format!(
+            "document is outside the current root: {}",
+            relative_path
+        ));
+    }
+
+    Ok(file_path)
 }
 
 fn path_to_relative(root_dir: &Path, path: &Path) -> Option<String> {
