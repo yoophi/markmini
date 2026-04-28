@@ -1,18 +1,11 @@
 import { create } from "zustand";
 
 import { extractHeadings } from "@/lib/markdown";
-import {
-  getInitialSession,
-  readMarkdownFile,
-  refreshSession,
-  writeMarkdownFile,
-  type ScanProgressPayload,
-} from "@/lib/tauri";
+import { getInitialSession, readMarkdownFile, refreshSession, type ScanProgressPayload } from "@/lib/tauri";
 import type { HeadingItem, ScanStatus } from "@/types/content";
 
 type BootstrapState = "idle" | "loading" | "ready" | "error";
 type DocumentState = "idle" | "loading" | "ready" | "error";
-type DocumentMode = "preview" | "edit";
 
 interface AppStore {
   bootstrapState: BootstrapState;
@@ -30,25 +23,14 @@ interface AppStore {
   document: {
     state: DocumentState;
     content: string;
-    savedContent: string;
-    draftContent: string;
     headings: HeadingItem[];
     error: string | null;
-    mode: DocumentMode;
-    isDirty: boolean;
-    isSaving: boolean;
-    lastSavedAt: string | null;
-    externalChangeDetected: boolean;
   };
   setSidebarOpen: (open: boolean) => void;
   applyScanProgress: (payload: ScanProgressPayload) => Promise<void>;
   bootstrap: () => Promise<void>;
   openDocument: (relativePath: string) => Promise<void>;
-  setDocumentMode: (mode: DocumentMode) => void;
-  updateDraftContent: (content: string) => void;
-  saveCurrentDocument: () => Promise<void>;
-  reloadCurrentDocument: (force?: boolean) => Promise<void>;
-  keepDraftAfterExternalChange: () => void;
+  reloadCurrentDocument: () => Promise<void>;
   refresh: () => Promise<void>;
 }
 
@@ -132,13 +114,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
     }
   },
   openDocument: async (relativePath) => {
-    const requestPath = relativePath;
-    const current = get();
-    if (current.document.isDirty && !confirmDiscardUnsavedChanges()) {
-      return;
-    }
-
-    const loadToken = current.documentLoadToken + 1;
+    const loadToken = get().documentLoadToken + 1;
     set({
       selectedFile: relativePath,
       documentLoadToken: loadToken,
@@ -146,8 +122,8 @@ export const useAppStore = create<AppStore>((set, get) => ({
     });
 
     try {
-      const document = await readMarkdownFile(requestPath);
-      if (!isCurrentDocumentLoad(get(), requestPath, loadToken)) {
+      const document = await readMarkdownFile(relativePath);
+      if (!isCurrentDocumentLoad(get(), relativePath, loadToken)) {
         return;
       }
 
@@ -156,7 +132,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
         document: createReadyDocument(document.content, document.headings),
       });
     } catch (error) {
-      if (!isCurrentDocumentLoad(get(), requestPath, loadToken)) {
+      if (!isCurrentDocumentLoad(get(), relativePath, loadToken)) {
         return;
       }
 
@@ -165,106 +141,27 @@ export const useAppStore = create<AppStore>((set, get) => ({
       });
     }
   },
-  setDocumentMode: (mode) => {
-    set((state) => ({
-      document: {
-        ...state.document,
-        mode,
-      },
-    }));
-  },
-  updateDraftContent: (content) => {
-    set((state) => ({
-      document: {
-        ...state.document,
-        content,
-        draftContent: content,
-        headings: extractHeadings(content),
-        isDirty: content !== state.document.savedContent,
-      },
-    }));
-  },
-  saveCurrentDocument: async () => {
-    const state = get();
-    const current = state.selectedFile;
-    const currentDocument = state.document;
-    if (
-      !current ||
-      currentDocument.state !== "ready" ||
-      !currentDocument.isDirty ||
-      currentDocument.isSaving ||
-      currentDocument.externalChangeDetected
-    ) {
-      return;
-    }
-
-    const draftContent = currentDocument.draftContent;
-    set((state) => ({
-      document: {
-        ...state.document,
-        isSaving: true,
-        error: null,
-      },
-    }));
-
-    try {
-      const document = await writeMarkdownFile(current, draftContent);
-      set({
-        selectedFile: document.relativePath,
-        document: {
-          ...createReadyDocument(document.content, document.headings),
-          mode: get().document.mode,
-          lastSavedAt: new Date().toISOString(),
-        },
-      });
-    } catch (error) {
-      set((state) => ({
-        document: {
-          ...state.document,
-          state: state.document.state === "loading" ? "error" : state.document.state,
-          isSaving: false,
-          error: error instanceof Error ? error.message : "문서를 저장하지 못했습니다.",
-        },
-      }));
-    }
-  },
-  reloadCurrentDocument: async (force = false) => {
+  reloadCurrentDocument: async () => {
     const current = get().selectedFile;
     if (!current) {
       return;
     }
-    const requestPath = current;
-    const currentState = get();
 
-    const currentDocument = currentState.document;
-    if (currentDocument.isDirty && !force) {
-      set({
-        document: {
-          ...currentDocument,
-          externalChangeDetected: true,
-        },
-      });
-      return;
-    }
-
-    const loadToken = currentState.documentLoadToken + 1;
+    const loadToken = get().documentLoadToken + 1;
     set({ documentLoadToken: loadToken });
 
     try {
-      const document = await readMarkdownFile(requestPath);
-      if (!isCurrentDocumentLoad(get(), requestPath, loadToken)) {
+      const document = await readMarkdownFile(current);
+      if (!isCurrentDocumentLoad(get(), current, loadToken)) {
         return;
       }
 
-      set((state) => ({
+      set({
         selectedFile: document.relativePath,
-        document: {
-          ...createReadyDocument(document.content, document.headings),
-          mode: state.document.mode,
-        },
-      }));
+        document: createReadyDocument(document.content, document.headings),
+      });
     } catch (error) {
-      if (!isCurrentDocumentLoad(get(), requestPath, loadToken)) {
+      if (!isCurrentDocumentLoad(get(), current, loadToken)) {
         return;
       }
 
@@ -273,64 +170,33 @@ export const useAppStore = create<AppStore>((set, get) => ({
       });
     }
   },
-  keepDraftAfterExternalChange: () => {
-    set((state) => ({
-      document: {
-        ...state.document,
-        externalChangeDetected: false,
-      },
-    }));
-  },
   refresh: async () => {
     const previousState = get();
-    const previousSelection = previousState.selectedFile;
-    const hadDirtyDocument = previousState.document.isDirty;
-
-    if (hadDirtyDocument && !confirmDiscardUnsavedChanges()) {
-      return;
-    }
+    set({ scanState: "scanning", scanError: null });
 
     try {
       const session = await refreshSession();
       const { values: files, valueSet: fileSet } = mergeSortedUnique([], new Set(), session.files);
+      const selectedFile = session.selectedFile;
       set({
-        bootstrapState: "ready",
-        error: null,
         rootDir: session.rootDir,
         files,
         fileSet,
+        selectedFile,
         scanState: "completed",
-        scanSkippedPaths: [],
-        scanSkippedPathSet: new Set(),
-        scanError: null,
       });
 
-      if (previousSelection && session.files.includes(previousSelection)) {
-        if (hadDirtyDocument) {
-          await get().reloadCurrentDocument(true);
-        }
-        return;
-      }
-
-      if (previousSelection) {
-        set({
-          selectedFile: previousSelection,
-          document: createErrorDocument("선택한 문서가 디스크에서 삭제되었거나 이동되었습니다."),
-        });
-        return;
-      }
-
-      if (session.selectedFile) {
-        await get().openDocument(session.selectedFile);
+      if (selectedFile && selectedFile !== previousState.selectedFile) {
+        await get().openDocument(selectedFile);
+      } else if (selectedFile) {
+        await get().reloadCurrentDocument();
       } else {
-        set({
-          selectedFile: null,
-          document: createEmptyDocument(),
-        });
+        set({ document: createEmptyDocument() });
       }
     } catch (error) {
       set({
-        error: error instanceof Error ? error.message : "세션을 새로고침하지 못했습니다.",
+        scanState: "error",
+        scanError: error instanceof Error ? error.message : "문서 목록을 새로고침하지 못했습니다.",
       });
     }
   },
@@ -340,22 +206,17 @@ function createEmptyDocument(): AppStore["document"] {
   return {
     state: "idle",
     content: "",
-    savedContent: "",
-    draftContent: "",
     headings: [],
     error: null,
-    mode: "preview",
-    isDirty: false,
-    isSaving: false,
-    lastSavedAt: null,
-    externalChangeDetected: false,
   };
 }
 
 function createLoadingDocument(): AppStore["document"] {
   return {
-    ...createEmptyDocument(),
     state: "loading",
+    content: "",
+    headings: [],
+    error: null,
   };
 }
 
@@ -363,28 +224,18 @@ function createReadyDocument(content: string, headings: HeadingItem[]): AppStore
   return {
     state: "ready",
     content,
-    savedContent: content,
-    draftContent: content,
     headings: headings.length > 0 ? headings : extractHeadings(content),
     error: null,
-    mode: "preview",
-    isDirty: false,
-    isSaving: false,
-    lastSavedAt: null,
-    externalChangeDetected: false,
   };
 }
 
 function createErrorDocument(message: string): AppStore["document"] {
   return {
-    ...createEmptyDocument(),
     state: "error",
+    content: "",
+    headings: [],
     error: message,
   };
-}
-
-function confirmDiscardUnsavedChanges() {
-  return window.confirm("저장하지 않은 변경사항이 있습니다. 변경사항을 버리고 계속할까요?");
 }
 
 function isCurrentDocumentLoad(state: AppStore, requestPath: string, loadToken: number) {
@@ -397,17 +248,14 @@ function mergeSortedUnique(current: string[], currentSet: ReadonlySet<string>, i
 
   for (const value of incoming) {
     if (!next.has(value)) {
+      next.add(value);
       hasNewValue = true;
     }
-    next.add(value);
   }
 
   if (!hasNewValue && next.size === current.length) {
     return { values: current, valueSet: currentSet };
   }
 
-  return {
-    values: [...next].sort((a, b) => a.localeCompare(b)),
-    valueSet: next,
-  };
+  return { values: [...next].sort(), valueSet: next };
 }
