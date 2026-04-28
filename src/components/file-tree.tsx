@@ -6,14 +6,16 @@ import { cn } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import type { ScanStatus } from "@/types/content";
+import type { MarkdownFileMetadata } from "@/types/content";
 
-export type DocumentTreeSortMode = "name" | "path";
+export type DocumentTreeSortMode = "name" | "path" | "modified";
 
 export const DOCUMENT_TREE_SEARCH_QUERY_STORAGE_KEY = "markmini.documentTree.searchQuery";
 export const DOCUMENT_TREE_SORT_MODE_STORAGE_KEY = "markmini.documentTree.sortMode";
 
 interface FileTreeProps {
   files: string[];
+  fileMetadata: Record<string, MarkdownFileMetadata>;
   recentDocuments: string[];
   favoriteDocuments: string[];
   scanState: ScanStatus;
@@ -25,6 +27,7 @@ interface FileTreeProps {
 
 export function FileTree({
   files,
+  fileMetadata,
   recentDocuments,
   favoriteDocuments,
   scanState,
@@ -37,7 +40,7 @@ export function FileTree({
   const [sortMode, setSortMode] = useState<DocumentTreeSortMode>(readStoredSortMode);
   const normalizedSearchQuery = searchQuery.trim().toLocaleLowerCase();
   const filteredFiles = useMemo(() => filterFiles(files, normalizedSearchQuery), [files, normalizedSearchQuery]);
-  const tree = useMemo(() => buildTree(filteredFiles, sortMode), [filteredFiles, sortMode]);
+  const tree = useMemo(() => buildTree(filteredFiles, sortMode, fileMetadata), [filteredFiles, fileMetadata, sortMode]);
   const directoryPaths = useMemo(() => collectDirectoryPaths(tree), [tree]);
   const selectedFileIsFilteredOut = Boolean(normalizedSearchQuery && selectedFile && !filteredFiles.includes(selectedFile));
   const hasInitializedExpansionRef = useRef(false);
@@ -232,6 +235,7 @@ export function FileTree({
           >
             <option value="name">이름순</option>
             <option value="path">경로순</option>
+            <option value="modified">수정일순</option>
           </select>
         </div>
         {scanState === "scanning" || skippedCount > 0 ? (
@@ -596,17 +600,21 @@ export function writeStoredSortMode(sortMode: DocumentTreeSortMode) {
 }
 
 export function parseSortMode(value: unknown): DocumentTreeSortMode {
-  return value === "path" ? "path" : "name";
+  return value === "path" || value === "modified" ? value : "name";
 }
 
-export function buildTree(files: string[], sortMode: DocumentTreeSortMode = "name") {
+export function buildTree(
+  files: string[],
+  sortMode: DocumentTreeSortMode = "name",
+  fileMetadata: Record<string, MarkdownFileMetadata> = {},
+) {
   const root: TreeNodeData[] = [];
 
   for (const file of files) {
     insertNode(root, file.split("/"), "", file);
   }
 
-  return sortTree(root, sortMode);
+  return sortTree(root, sortMode, fileMetadata);
 }
 
 function insertNode(nodes: TreeNodeData[], segments: string[], parentPath: string, originalPath: string) {
@@ -639,19 +647,38 @@ function insertNode(nodes: TreeNodeData[], segments: string[], parentPath: strin
   }
 }
 
-function sortTree(nodes: TreeNodeData[], sortMode: DocumentTreeSortMode): TreeNodeData[] {
+function sortTree(
+  nodes: TreeNodeData[],
+  sortMode: DocumentTreeSortMode,
+  fileMetadata: Record<string, MarkdownFileMetadata>,
+): TreeNodeData[] {
   return nodes
     .map((node) => ({
       ...node,
-      children: sortTree(node.children, sortMode),
+      children: sortTree(node.children, sortMode, fileMetadata),
     }))
     .sort((left, right) => {
       if (left.kind !== right.kind) {
         return left.kind === "directory" ? -1 : 1;
       }
 
+      if (sortMode === "modified") {
+        const modifiedComparison = modifiedAt(right, fileMetadata) - modifiedAt(left, fileMetadata);
+        if (modifiedComparison !== 0) {
+          return modifiedComparison;
+        }
+      }
+
       const leftValue = sortMode === "path" ? left.path : left.name;
       const rightValue = sortMode === "path" ? right.path : right.name;
       return leftValue.localeCompare(rightValue);
     });
+}
+
+function modifiedAt(node: TreeNodeData, fileMetadata: Record<string, MarkdownFileMetadata>): number {
+  if (node.kind === "file") {
+    return fileMetadata[node.path]?.modifiedAt ?? 0;
+  }
+
+  return Math.max(0, ...node.children.map((child) => modifiedAt(child, fileMetadata)));
 }

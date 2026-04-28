@@ -50,6 +50,7 @@ function resetStore() {
     error: null,
     rootDir: null,
     files: [],
+    fileMetadata: {},
     fileSet: new Set(),
     recentDocuments: [],
     favoriteDocuments: [],
@@ -79,6 +80,7 @@ describe("viewer app store", () => {
     vi.mocked(getInitialSession).mockResolvedValue({
       rootDir: "/vault",
       files: ["notes/a.md"],
+      fileMetadata: [{ relativePath: "notes/a.md", modifiedAt: 10 }],
       selectedFile: "notes/a.md",
     });
     vi.mocked(readMarkdownFile).mockResolvedValue(markdownDocument("notes/a.md", "# Title\n"));
@@ -108,6 +110,7 @@ describe("viewer app store", () => {
     vi.mocked(getInitialSession).mockResolvedValue({
       rootDir: "/vault",
       files: ["notes/a.md", "notes/b.md"],
+      fileMetadata: [],
       selectedFile: null,
     });
 
@@ -122,6 +125,7 @@ describe("viewer app store", () => {
     vi.mocked(getInitialSession).mockResolvedValue({
       rootDir: "/vault",
       files: ["notes/a.md", "notes/b.md"],
+      fileMetadata: [],
       selectedFile: null,
     });
 
@@ -173,6 +177,7 @@ describe("viewer app store", () => {
     vi.mocked(refreshSession).mockResolvedValue({
       rootDir: "/vault",
       files: ["notes/a.md", "notes/b.md"],
+      fileMetadata: [{ relativePath: "notes/a.md", modifiedAt: 20 }],
       selectedFile: "notes/a.md",
     });
     vi.mocked(readMarkdownFile).mockResolvedValue(markdownDocument("notes/a.md", "# Reloaded\n", []));

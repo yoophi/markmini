@@ -18,6 +18,7 @@ function App() {
   const error = useAppStore((state) => state.error);
   const rootDir = useAppStore((state) => state.rootDir);
   const files = useAppStore((state) => state.files);
+  const fileMetadata = useAppStore((state) => state.fileMetadata);
   const recentDocuments = useAppStore((state) => state.recentDocuments);
   const favoriteDocuments = useAppStore((state) => state.favoriteDocuments);
   const scanState = useAppStore((state) => state.scanState);
@@ -82,6 +83,7 @@ function App() {
                   <div className="h-[calc(100vh-72px)] overflow-hidden">
                     <FileTree
                       files={files}
+                      fileMetadata={fileMetadata}
                       recentDocuments={recentDocuments}
                       favoriteDocuments={favoriteDocuments}
                       scanState={scanState}
@@ -115,6 +117,7 @@ function App() {
               <div className="sticky top-4 h-[calc(100vh-8rem)]">
                 <FileTree
                   files={files}
+                  fileMetadata={fileMetadata}
                   recentDocuments={recentDocuments}
                   favoriteDocuments={favoriteDocuments}
                   scanState={scanState}
