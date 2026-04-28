@@ -296,6 +296,7 @@ export function FileTree({
                     onSelect={onSelect}
                     searchQuery={normalizedSearchQuery}
                     modifiedAt={fileMetadata[node.path]?.modifiedAt ?? null}
+                    sizeBytes={fileMetadata[node.path]?.sizeBytes ?? null}
                     showModifiedTime={sortMode === "modified"}
                     depth={depth}
                     expanded={expandedPaths.has(node.path)}
@@ -367,6 +368,7 @@ function TreeNode({
   onSelect,
   searchQuery,
   modifiedAt,
+  sizeBytes,
   showModifiedTime,
   depth,
   expanded,
@@ -379,6 +381,7 @@ function TreeNode({
   onSelect: (relativePath: string) => void;
   searchQuery: string;
   modifiedAt: number | null;
+  sizeBytes: number | null;
   showModifiedTime: boolean;
   depth: number;
   expanded: boolean;
@@ -391,7 +394,7 @@ function TreeNode({
   const label = isDirectory ? node.name : fileLabel(node.path);
   const normalizedLabel = label.toLocaleLowerCase();
   const pathMatchesOnly = Boolean(searchQuery && !normalizedLabel.includes(searchQuery) && node.path.toLocaleLowerCase().includes(searchQuery));
-  const metadataContext = !isDirectory && showModifiedTime ? formatModifiedTime(modifiedAt) : null;
+  const metadataContext = !isDirectory ? formatMetadataContext({ modifiedAt, sizeBytes, showModifiedTime }) : null;
 
   if (node.kind === "directory") {
     return (
@@ -489,6 +492,15 @@ function renderHighlightedText(text: string, normalizedSearchQuery: string, isSe
   );
 }
 
+function formatMetadataContext({ modifiedAt, sizeBytes, showModifiedTime }: { modifiedAt: number | null; sizeBytes: number | null; showModifiedTime: boolean }) {
+  const parts = [];
+  if (showModifiedTime) {
+    parts.push(formatModifiedTime(modifiedAt));
+  }
+  parts.push(formatFileSize(sizeBytes));
+  return parts.join(" · ");
+}
+
 function formatModifiedTime(modifiedAt: number | null) {
   if (!modifiedAt) {
     return "수정시간 없음";
@@ -498,6 +510,26 @@ function formatModifiedTime(modifiedAt: number | null) {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(new Date(modifiedAt))}`;
+}
+
+function formatFileSize(sizeBytes: number | null) {
+  if (sizeBytes === null) {
+    return "크기 없음";
+  }
+
+  if (sizeBytes < 1024) {
+    return `${sizeBytes} B`;
+  }
+
+  if (sizeBytes < 1024 * 1024) {
+    return `${formatCompactNumber(sizeBytes / 1024)} KB`;
+  }
+
+  return `${formatCompactNumber(sizeBytes / 1024 / 1024)} MB`;
+}
+
+function formatCompactNumber(value: number) {
+  return new Intl.NumberFormat("ko-KR", { maximumFractionDigits: value >= 10 ? 0 : 1 }).format(value);
 }
 
 function treeNodeIndentClass(depth: number) {

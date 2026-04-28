@@ -160,22 +160,36 @@ describe("FileTree search", () => {
     expect(within(screen.getByRole("tree")).getAllByRole("treeitem")[0].textContent).toContain("new");
   });
 
-  it("shows modified-time context when sorting by modified time", () => {
+  it("shows modified-time and file-size context when sorting by modified time", () => {
     renderFileTree({
       files: ["new.md"],
       fileMetadata: {
-        "new.md": { relativePath: "new.md", modifiedAt: Date.UTC(2026, 0, 2, 3, 4), sizeBytes: 20 },
+        "new.md": { relativePath: "new.md", modifiedAt: Date.UTC(2026, 0, 2, 3, 4), sizeBytes: 2048 },
       },
       sortMode: "modified",
     });
 
     expect(screen.queryByText(/수정:/)).not.toBeNull();
+    expect(screen.queryByText(/2 KB/)).not.toBeNull();
   });
 
-  it("handles missing modified-time metadata without crashing", () => {
+  it("shows file-size context outside modified-time sorting", () => {
+    renderFileTree({
+      files: ["tiny.md"],
+      fileMetadata: {
+        "tiny.md": { relativePath: "tiny.md", modifiedAt: Date.UTC(2026, 0, 2, 3, 4), sizeBytes: 512 },
+      },
+    });
+
+    expect(screen.queryByText("512 B")).not.toBeNull();
+    expect(screen.queryByText(/수정:/)).toBeNull();
+  });
+
+  it("handles missing metadata without crashing", () => {
     renderFileTree({ files: ["unknown.md"], sortMode: "modified" });
 
-    expect(screen.queryByText("수정시간 없음")).not.toBeNull();
+    expect(screen.queryByText(/수정시간 없음/)).not.toBeNull();
+    expect(screen.queryByText(/크기 없음/)).not.toBeNull();
   });
 
   it("clears the search query with the clear button", () => {
