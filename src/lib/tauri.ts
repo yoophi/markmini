@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
-import type { InitialSession, MarkdownDocument, ScanStatus } from "@/types/content";
+import type { InitialSession, MarkdownDocument, MarkdownFileMetadata, ScanStatus } from "@/types/content";
 
 export interface FsChangePayload {
   changedPaths: string[];
@@ -10,6 +10,7 @@ export interface FsChangePayload {
 
 export interface ScanProgressPayload {
   files: string[];
+  fileMetadata: MarkdownFileMetadata[];
   selectedFile: string | null;
   status: ScanStatus;
   skippedPaths: string[];
