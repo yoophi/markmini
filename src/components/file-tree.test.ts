@@ -2,14 +2,30 @@ import { describe, expect, it } from "vitest";
 
 import {
   DOCUMENT_TREE_SEARCH_QUERY_STORAGE_KEY,
+  DOCUMENT_TREE_SORT_DIRECTION_STORAGE_KEY,
+  DOCUMENT_TREE_SORT_MODE_STORAGE_KEY,
   buildTree,
+  defaultSortDirection,
+  documentTreeSortDirectionForModeStorageKey,
+  documentTreeSortDirectionStorageKey,
+  documentTreeSortModeStorageKey,
   filterFiles,
   flattenVisibleTree,
+  formatFileSize,
+  formatModifiedAt,
+  parseSortDirection,
+  parseSortMode,
   readStoredSearchQuery,
+  readStoredSortDirectionForMode,
+  readStoredSortDirection,
+  readStoredSortMode,
   shouldShowSearchClearButton,
   splitHighlightedText,
   treeNodeIndent,
   writeStoredSearchQuery,
+  writeStoredSortDirection,
+  writeStoredSortDirectionForMode,
+  writeStoredSortMode,
 } from "./file-tree";
 
 const files = ["docs/guide.md", "notes/today.md", "projects/markmini/plan.md"];
@@ -185,3 +201,153 @@ describe("file tree structure", () => {
     expect([0, 1, 2, 3].map(treeNodeIndent)).toEqual(["8px", "28px", "48px", "68px"]);
   });
 });
+
+describe("document tree sorting", () => {
+  it("parses unknown sort modes as name sort", () => {
+    expect(parseSortMode("path")).toBe("path");
+    expect(parseSortMode("modified")).toBe("modified");
+    expect(parseSortMode("size")).toBe("size");
+    expect(parseSortMode(null)).toBe("name");
+  });
+
+  it("defaults sort direction by sort mode", () => {
+    expect(defaultSortDirection("name")).toBe("asc");
+    expect(defaultSortDirection("path")).toBe("asc");
+    expect(defaultSortDirection("modified")).toBe("desc");
+    expect(defaultSortDirection("size")).toBe("desc");
+    expect(parseSortDirection("sideways", "size")).toBe("desc");
+  });
+
+  it("stores and restores the selected sort mode per root", () => {
+    const localStorage = installLocalStorageMock();
+
+    writeStoredSortMode("/vault-a", "path");
+    writeStoredSortMode("/vault-b", "modified");
+
+    expect(localStorage.getItem(documentTreeSortModeStorageKey("/vault-a"))).toBe("path");
+    expect(localStorage.getItem(`${DOCUMENT_TREE_SORT_MODE_STORAGE_KEY}:/vault-b`)).toBe("modified");
+    expect(readStoredSortMode("/vault-a")).toBe("path");
+    expect(readStoredSortMode("/vault-b")).toBe("modified");
+  });
+
+  it("stores and restores the selected sort direction per root", () => {
+    const localStorage = installLocalStorageMock();
+
+    writeStoredSortDirection("/vault-a", "desc");
+    writeStoredSortDirection("/vault-b", "asc");
+
+    expect(localStorage.getItem(documentTreeSortDirectionStorageKey("/vault-a"))).toBe("desc");
+    expect(localStorage.getItem(`${DOCUMENT_TREE_SORT_DIRECTION_STORAGE_KEY}:/vault-b`)).toBe("asc");
+    expect(readStoredSortDirection("/vault-a", "name")).toBe("desc");
+    expect(readStoredSortDirection("/vault-b", "modified")).toBe("asc");
+  });
+
+  it("stores and restores sort direction per root and sort mode", () => {
+    const localStorage = installLocalStorageMock();
+
+    writeStoredSortDirection("/vault", "desc");
+    writeStoredSortDirectionForMode("/vault", "name", "asc");
+    writeStoredSortDirectionForMode("/vault", "modified", "desc");
+
+    expect(localStorage.getItem(documentTreeSortDirectionForModeStorageKey("/vault", "name"))).toBe("asc");
+    expect(readStoredSortDirectionForMode("/vault", "name")).toBe("asc");
+    expect(readStoredSortDirectionForMode("/vault", "modified")).toBe("desc");
+  });
+
+  it("falls back to the legacy root-level direction before using mode defaults", () => {
+    installLocalStorageMock();
+
+    writeStoredSortDirection("/vault", "asc");
+
+    expect(readStoredSortDirectionForMode("/vault", "size")).toBe("asc");
+    expect(readStoredSortDirectionForMode("/other", "size")).toBe("desc");
+  });
+
+  it("sorts files and directories by newest modified time when metadata is available", () => {
+    const tree = buildTree(
+      ["old.md", "docs/older.md", "docs/newer.md", "notes/latest.md"],
+      "modified",
+      {
+        "old.md": { relativePath: "old.md", modifiedAt: 10, sizeBytes: 100 },
+        "docs/older.md": { relativePath: "docs/older.md", modifiedAt: 20, sizeBytes: 200 },
+        "docs/newer.md": { relativePath: "docs/newer.md", modifiedAt: 30, sizeBytes: 300 },
+        "notes/latest.md": { relativePath: "notes/latest.md", modifiedAt: 40, sizeBytes: 400 },
+      },
+    );
+
+    expect(tree.map((node) => node.path)).toEqual(["notes", "docs", "old.md"]);
+    expect(tree[1]?.children.map((node) => node.path)).toEqual(["docs/newer.md", "docs/older.md"]);
+  });
+
+  it("sorts files and directories by largest file size when metadata is available", () => {
+    const tree = buildTree(
+      ["small.md", "docs/medium.md", "docs/large.md", "notes/largest.md"],
+      "size",
+      {
+        "small.md": { relativePath: "small.md", modifiedAt: 10, sizeBytes: 10 },
+        "docs/medium.md": { relativePath: "docs/medium.md", modifiedAt: 20, sizeBytes: 200 },
+        "docs/large.md": { relativePath: "docs/large.md", modifiedAt: 30, sizeBytes: 300 },
+        "notes/largest.md": { relativePath: "notes/largest.md", modifiedAt: 40, sizeBytes: 400 },
+      },
+    );
+
+    expect(tree.map((node) => node.path)).toEqual(["notes", "docs", "small.md"]);
+    expect(tree[1]?.children.map((node) => node.path)).toEqual(["docs/large.md", "docs/medium.md"]);
+  });
+
+  it("reverses same-kind tree ordering when descending direction is selected", () => {
+    const tree = buildTree(["a.md", "c.md", "b.md", "docs/a.md"], "name", {}, "desc");
+
+    expect(tree.map((node) => node.path)).toEqual(["docs", "c.md", "b.md", "a.md"]);
+  });
+
+  it("reverses metadata sorting when ascending direction is selected", () => {
+    const tree = buildTree(
+      ["small.md", "large.md"],
+      "size",
+      {
+        "small.md": { relativePath: "small.md", modifiedAt: 10, sizeBytes: 10 },
+        "large.md": { relativePath: "large.md", modifiedAt: 20, sizeBytes: 1000 },
+      },
+      "asc",
+    );
+
+    expect(tree.map((node) => node.path)).toEqual(["small.md", "large.md"]);
+  });
+});
+
+describe("metadata labels", () => {
+  it("formats recent modified times without exposing file content", () => {
+    const now = Date.UTC(2026, 3, 28, 13, 0, 0);
+
+    expect(formatModifiedAt(null, now)).toBeNull();
+    expect(formatModifiedAt(now - 30_000, now)).toBe("방금 전");
+    expect(formatModifiedAt(now - 5 * 60_000, now)).toBe("5분 전");
+    expect(formatModifiedAt(now - 3 * 60 * 60_000, now)).toBe("3시간 전");
+    expect(formatModifiedAt(now - 2 * 24 * 60 * 60_000, now)).toBe("2일 전");
+  });
+
+  it("formats file sizes from content-free metadata", () => {
+    expect(formatFileSize(null)).toBeNull();
+    expect(formatFileSize(0)).toBe("0 B");
+    expect(formatFileSize(512)).toBe("512 B");
+    expect(formatFileSize(1536)).toBe("1.5 KB");
+    expect(formatFileSize(12 * 1024)).toBe("12 KB");
+    expect(formatFileSize(2.5 * 1024 * 1024)).toBe("2.5 MB");
+  });
+});
+
+function installLocalStorageMock() {
+  const values = new Map<string, string>();
+  const localStorage = {
+    getItem: (key: string) => values.get(key) ?? null,
+    setItem: (key: string, value: string) => values.set(key, value),
+  };
+
+  Object.defineProperty(globalThis, "window", {
+    value: { localStorage },
+    configurable: true,
+  });
+
+  return localStorage;
+}

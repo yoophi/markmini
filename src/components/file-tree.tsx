@@ -1,27 +1,57 @@
 import { type KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, ChevronRight, FileText, Folder, FolderOpen, Search, X } from "lucide-react";
+import { ChevronDown, ChevronRight, FileText, Folder, FolderOpen, Search, Star, X } from "lucide-react";
 
 import { fileLabel } from "@/lib/path";
 import { cn } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import type { ScanStatus } from "@/types/content";
+import type { MarkdownFileMetadata } from "@/types/content";
+
+export type DocumentTreeSortMode = "name" | "path" | "modified" | "size";
+export type DocumentTreeSortDirection = "asc" | "desc";
+
+export const DOCUMENT_TREE_SEARCH_QUERY_STORAGE_KEY = "markmini.documentTree.searchQuery";
+export const DOCUMENT_TREE_SORT_MODE_STORAGE_KEY = "markmini.documentTree.sortMode";
+export const DOCUMENT_TREE_SORT_DIRECTION_STORAGE_KEY = "markmini.documentTree.sortDirection";
 
 interface FileTreeProps {
+  rootDir: string | null;
   files: string[];
+  fileMetadata: Record<string, MarkdownFileMetadata>;
+  recentDocuments: string[];
+  favoriteDocuments: string[];
   scanState: ScanStatus;
   skippedCount: number;
   selectedFile: string | null;
   onSelect: (relativePath: string) => void;
+  onToggleFavorite: (relativePath: string) => void;
 }
 
-export const DOCUMENT_TREE_SEARCH_QUERY_STORAGE_KEY = "markmini.documentTree.searchQuery";
-
-export function FileTree({ files, scanState, skippedCount, selectedFile, onSelect }: FileTreeProps) {
+export function FileTree({
+  rootDir,
+  files,
+  fileMetadata,
+  recentDocuments,
+  favoriteDocuments,
+  scanState,
+  skippedCount,
+  selectedFile,
+  onSelect,
+  onToggleFavorite,
+}: FileTreeProps) {
   const [searchQuery, setSearchQuery] = useState(readStoredSearchQuery);
+  const [sortMode, setSortMode] = useState<DocumentTreeSortMode>(() => readStoredSortMode(rootDir));
+  const [sortDirection, setSortDirection] = useState<DocumentTreeSortDirection>(() => {
+    const initialSortMode = readStoredSortMode(rootDir);
+    return readStoredSortDirectionForMode(rootDir, initialSortMode);
+  });
   const normalizedSearchQuery = searchQuery.trim().toLocaleLowerCase();
   const filteredFiles = useMemo(() => filterFiles(files, normalizedSearchQuery), [files, normalizedSearchQuery]);
-  const tree = useMemo(() => buildTree(filteredFiles), [filteredFiles]);
+  const tree = useMemo(
+    () => buildTree(filteredFiles, sortMode, fileMetadata, sortDirection),
+    [filteredFiles, fileMetadata, sortDirection, sortMode],
+  );
   const directoryPaths = useMemo(() => collectDirectoryPaths(tree), [tree]);
   const selectedFileIsFilteredOut = Boolean(normalizedSearchQuery && selectedFile && !filteredFiles.includes(selectedFile));
   const hasInitializedExpansionRef = useRef(false);
@@ -34,6 +64,21 @@ export function FileTree({ files, scanState, skippedCount, selectedFile, onSelec
   useEffect(() => {
     writeStoredSearchQuery(searchQuery);
   }, [searchQuery]);
+
+  useEffect(() => {
+    const storedSortMode = readStoredSortMode(rootDir);
+    setSortMode(storedSortMode);
+    setSortDirection(readStoredSortDirectionForMode(rootDir, storedSortMode));
+  }, [rootDir]);
+
+  useEffect(() => {
+    writeStoredSortMode(rootDir, sortMode);
+  }, [rootDir, sortMode]);
+
+  useEffect(() => {
+    writeStoredSortDirection(rootDir, sortDirection);
+    writeStoredSortDirectionForMode(rootDir, sortMode, sortDirection);
+  }, [rootDir, sortDirection, sortMode]);
 
   useEffect(() => {
     setExpandedPaths((current) => {
@@ -87,6 +132,12 @@ export function FileTree({ files, scanState, skippedCount, selectedFile, onSelec
       }
       return next;
     });
+  };
+
+  const handleSortModeChange = (value: string) => {
+    const nextSortMode = parseSortMode(value);
+    setSortMode(nextSortMode);
+    setSortDirection(readStoredSortDirectionForMode(rootDir, nextSortMode));
   };
 
   const handleTreeKeyDown = (event: KeyboardEvent<HTMLUListElement>) => {
@@ -202,6 +253,31 @@ export function FileTree({ files, scanState, skippedCount, selectedFile, onSelec
             </button>
           ) : null}
         </div>
+        <div className="mt-3 flex items-center justify-between gap-3 text-xs text-muted-foreground">
+          <span>정렬</span>
+          <div className="flex items-center gap-2">
+            <select
+              value={sortMode}
+              onChange={(event) => handleSortModeChange(event.target.value)}
+              aria-label="문서 트리 정렬"
+              className="h-8 rounded-md border border-border bg-background px-2 text-xs text-foreground outline-none transition focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <option value="name">이름순</option>
+              <option value="path">경로순</option>
+              <option value="modified">수정일순</option>
+              <option value="size">크기순</option>
+            </select>
+            <select
+              value={sortDirection}
+              onChange={(event) => setSortDirection(parseSortDirection(event.target.value, sortMode))}
+              aria-label="문서 트리 정렬 방향"
+              className="h-8 rounded-md border border-border bg-background px-2 text-xs text-foreground outline-none transition focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <option value="asc">오름차순</option>
+              <option value="desc">내림차순</option>
+            </select>
+          </div>
+        </div>
         {scanState === "scanning" || skippedCount > 0 ? (
           <div className="mt-2 flex items-center justify-between gap-3 text-xs text-muted-foreground">
             <span>{scanState === "scanning" ? "문서를 찾는 중입니다." : "문서 탐색 완료"}</span>
@@ -212,6 +288,52 @@ export function FileTree({ files, scanState, skippedCount, selectedFile, onSelec
       <CardContent className="min-h-0 flex-1 p-0">
         <ScrollArea className="h-full">
           <div className="px-2 py-3">
+            {favoriteDocuments.length > 0 ? (
+              <div className="mb-3 border-b border-border/60 pb-3">
+                <p className="px-2 text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">Favorites</p>
+                <div className="mt-2 space-y-0.5">
+                  {favoriteDocuments.map((path) => (
+                    <button
+                      key={path}
+                      type="button"
+                      className={cn(
+                        "flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
+                        selectedFile === path
+                          ? "bg-primary text-primary-foreground shadow-sm"
+                          : "text-foreground hover:bg-accent hover:text-accent-foreground",
+                      )}
+                      onClick={() => onSelect(path)}
+                    >
+                      <Star className="h-4 w-4 shrink-0 fill-current text-yellow-500" />
+                      <span className="truncate">{fileLabel(path)}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+            {recentDocuments.length > 0 ? (
+              <div className="mb-3 border-b border-border/60 pb-3">
+                <p className="px-2 text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">Recent</p>
+                <div className="mt-2 space-y-0.5">
+                  {recentDocuments.map((path) => (
+                    <button
+                      key={path}
+                      type="button"
+                      className={cn(
+                        "flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
+                        selectedFile === path
+                          ? "bg-primary text-primary-foreground shadow-sm"
+                          : "text-foreground hover:bg-accent hover:text-accent-foreground",
+                      )}
+                      onClick={() => onSelect(path)}
+                    >
+                      <FileText className={cn("h-4 w-4 shrink-0", selectedFile === path ? "opacity-90" : "text-muted-foreground")} />
+                      <span className="truncate">{fileLabel(path)}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
             {selectedFileIsFilteredOut ? (
               <div className="mb-3 rounded-md border border-border bg-muted/40 px-3 py-2 text-xs leading-5 text-muted-foreground">
                 현재 선택된 문서는 검색 결과에 없습니다. 검색어를 지우면 다시 표시됩니다.
@@ -238,12 +360,16 @@ export function FileTree({ files, scanState, skippedCount, selectedFile, onSelec
                     node={node}
                     selectedFile={selectedFile}
                     onSelect={onSelect}
+                    fileMetadata={fileMetadata}
+                    sortMode={sortMode}
+                    favorite={favoriteDocuments.includes(node.path)}
                     depth={depth}
                     expanded={expandedPaths.has(node.path)}
                     focused={currentFocusPath === node.path}
                     searchQuery={searchQuery}
                     onFocusItem={setFocusedPath}
                     onToggle={toggleDirectory}
+                    onToggleFavorite={onToggleFavorite}
                   />
                 ))}
               </ul>
@@ -266,26 +392,37 @@ function TreeNode({
   node,
   selectedFile,
   onSelect,
+  fileMetadata,
+  sortMode,
+  favorite,
   depth,
   expanded,
   focused,
   searchQuery,
   onFocusItem,
   onToggle,
+  onToggleFavorite,
 }: {
   node: TreeNodeData;
   selectedFile: string | null;
   onSelect: (relativePath: string) => void;
+  fileMetadata: Record<string, MarkdownFileMetadata>;
+  sortMode: DocumentTreeSortMode;
+  favorite: boolean;
   depth: number;
   expanded: boolean;
   focused: boolean;
   searchQuery: string;
   onFocusItem: (path: string) => void;
   onToggle: (path: string) => void;
+  onToggleFavorite: (path: string) => void;
 }) {
   const isDirectory = node.kind === "directory";
   const isSelected = selectedFile === node.path;
   const label = isDirectory ? node.name : fileLabel(node.path);
+  const modifiedLabel =
+    sortMode === "modified" && node.kind === "file" ? formatModifiedAt(fileMetadata[node.path]?.modifiedAt) : null;
+  const sizeLabel = node.kind === "file" ? formatFileSize(fileMetadata[node.path]?.sizeBytes) : null;
 
   if (node.kind === "directory") {
     return (
@@ -324,28 +461,48 @@ function TreeNode({
 
   return (
     <li role="none">
-      <button
-        type="button"
+      <div
         role="treeitem"
         aria-selected={isSelected}
         aria-level={depth + 1}
-        tabIndex={focused ? 0 : -1}
         data-tree-path={node.path}
-        onFocus={() => onFocusItem(node.path)}
-        onClick={() => onSelect(node.path)}
         style={{ paddingLeft: treeNodeIndent(depth) }}
         className={cn(
-          "group flex h-9 w-full items-center gap-2 rounded-md pr-2 text-left text-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
+          "group flex h-9 w-full items-center gap-1 rounded-md pr-2 text-sm outline-none transition-colors focus-within:ring-2 focus-within:ring-ring",
           isSelected
             ? "bg-primary text-primary-foreground shadow-sm"
             : "text-foreground hover:bg-accent hover:text-accent-foreground",
         )}
       >
-        <FileText className={cn("h-4 w-4 shrink-0", isSelected ? "opacity-90" : "text-muted-foreground")} />
-        <span className="truncate">
-          <HighlightedLabel text={label} searchQuery={searchQuery} />
-        </span>
-      </button>
+        <button
+          type="button"
+          tabIndex={focused ? 0 : -1}
+          onFocus={() => onFocusItem(node.path)}
+          onClick={() => onSelect(node.path)}
+          className="flex min-w-0 flex-1 items-center gap-2 rounded-md text-left outline-none"
+        >
+          <FileText className={cn("h-4 w-4 shrink-0", isSelected ? "opacity-90" : "text-muted-foreground")} />
+          <span className="truncate">
+            <HighlightedLabel text={label} searchQuery={searchQuery} />
+          </span>
+          {modifiedLabel || sizeLabel ? (
+            <span className={cn("ml-auto shrink-0 text-[11px] tabular-nums", isSelected ? "opacity-80" : "text-muted-foreground")}>
+              {modifiedLabel ?? sizeLabel}
+            </span>
+          ) : null}
+        </button>
+        <button
+          type="button"
+          aria-label={favorite ? `${label} 즐겨찾기 해제` : `${label} 즐겨찾기 추가`}
+          className={cn(
+            "flex h-7 w-7 shrink-0 items-center justify-center rounded-md opacity-70 outline-none transition hover:bg-background/50 hover:opacity-100 focus-visible:ring-2 focus-visible:ring-ring",
+            favorite ? "text-yellow-500 opacity-100" : isSelected ? "text-primary-foreground" : "text-muted-foreground",
+          )}
+          onClick={() => onToggleFavorite(node.path)}
+        >
+          <Star className={cn("h-4 w-4", favorite ? "fill-current" : "")} />
+        </button>
+      </div>
     </li>
   );
 }
@@ -418,6 +575,18 @@ export function filterFiles(files: string[], normalizedSearchQuery: string) {
   });
 }
 
+export function documentTreeSortModeStorageKey(rootDir: string | null) {
+  return rootDir ? `${DOCUMENT_TREE_SORT_MODE_STORAGE_KEY}:${rootDir}` : DOCUMENT_TREE_SORT_MODE_STORAGE_KEY;
+}
+
+export function documentTreeSortDirectionStorageKey(rootDir: string | null) {
+  return rootDir ? `${DOCUMENT_TREE_SORT_DIRECTION_STORAGE_KEY}:${rootDir}` : DOCUMENT_TREE_SORT_DIRECTION_STORAGE_KEY;
+}
+
+export function documentTreeSortDirectionForModeStorageKey(rootDir: string | null, sortMode: DocumentTreeSortMode) {
+  return `${documentTreeSortDirectionStorageKey(rootDir)}:${sortMode}`;
+}
+
 export function shouldShowSearchClearButton(searchQuery: string) {
   return searchQuery.length > 0;
 }
@@ -472,14 +641,121 @@ export function writeStoredSearchQuery(searchQuery: string) {
   }
 }
 
-export function buildTree(files: string[]) {
+export function readStoredSortMode(rootDir: string | null = null): DocumentTreeSortMode {
+  if (typeof window === "undefined") {
+    return "name";
+  }
+
+  try {
+    return parseSortMode(window.localStorage.getItem(documentTreeSortModeStorageKey(rootDir)));
+  } catch {
+    return "name";
+  }
+}
+
+export function writeStoredSortMode(rootDir: string | null, sortMode: DocumentTreeSortMode) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  try {
+    window.localStorage.setItem(documentTreeSortModeStorageKey(rootDir), sortMode);
+  } catch {
+    // Keep sorting usable even if local storage is unavailable.
+  }
+}
+
+export function readStoredSortDirection(
+  rootDir: string | null = null,
+  sortMode: DocumentTreeSortMode = "name",
+): DocumentTreeSortDirection {
+  if (typeof window === "undefined") {
+    return defaultSortDirection(sortMode);
+  }
+
+  try {
+    return parseSortDirection(window.localStorage.getItem(documentTreeSortDirectionStorageKey(rootDir)), sortMode);
+  } catch {
+    return defaultSortDirection(sortMode);
+  }
+}
+
+export function writeStoredSortDirection(rootDir: string | null, sortDirection: DocumentTreeSortDirection) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  try {
+    window.localStorage.setItem(documentTreeSortDirectionStorageKey(rootDir), sortDirection);
+  } catch {
+    // Keep sorting usable even if local storage is unavailable.
+  }
+}
+
+export function readStoredSortDirectionForMode(
+  rootDir: string | null,
+  sortMode: DocumentTreeSortMode,
+): DocumentTreeSortDirection {
+  if (typeof window === "undefined") {
+    return defaultSortDirection(sortMode);
+  }
+
+  try {
+    const modeDirection = window.localStorage.getItem(documentTreeSortDirectionForModeStorageKey(rootDir, sortMode));
+    if (modeDirection) {
+      return parseSortDirection(modeDirection, sortMode);
+    }
+
+    return parseSortDirection(window.localStorage.getItem(documentTreeSortDirectionStorageKey(rootDir)), sortMode);
+  } catch {
+    return defaultSortDirection(sortMode);
+  }
+}
+
+export function writeStoredSortDirectionForMode(
+  rootDir: string | null,
+  sortMode: DocumentTreeSortMode,
+  sortDirection: DocumentTreeSortDirection,
+) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  try {
+    window.localStorage.setItem(documentTreeSortDirectionForModeStorageKey(rootDir, sortMode), sortDirection);
+  } catch {
+    // Keep sorting usable even if local storage is unavailable.
+  }
+}
+
+export function parseSortMode(value: unknown): DocumentTreeSortMode {
+  return value === "path" || value === "modified" || value === "size" ? value : "name";
+}
+
+export function parseSortDirection(
+  value: unknown,
+  sortMode: DocumentTreeSortMode = "name",
+): DocumentTreeSortDirection {
+  return value === "asc" || value === "desc" ? value : defaultSortDirection(sortMode);
+}
+
+export function defaultSortDirection(sortMode: DocumentTreeSortMode): DocumentTreeSortDirection {
+  return sortMode === "modified" || sortMode === "size" ? "desc" : "asc";
+}
+
+export function buildTree(
+  files: string[],
+  sortMode: DocumentTreeSortMode = "name",
+  fileMetadata: Record<string, MarkdownFileMetadata> = {},
+  sortDirection: DocumentTreeSortDirection = defaultSortDirection(sortMode),
+) {
   const root: TreeNodeData[] = [];
 
   for (const file of files) {
     insertNode(root, file.split("/"), "", file);
   }
 
-  return sortTree(root);
+  return sortTree(root, sortMode, fileMetadata, sortDirection);
 }
 
 function insertNode(nodes: TreeNodeData[], segments: string[], parentPath: string, originalPath: string) {
@@ -512,17 +788,109 @@ function insertNode(nodes: TreeNodeData[], segments: string[], parentPath: strin
   }
 }
 
-function sortTree(nodes: TreeNodeData[]): TreeNodeData[] {
+function sortTree(
+  nodes: TreeNodeData[],
+  sortMode: DocumentTreeSortMode,
+  fileMetadata: Record<string, MarkdownFileMetadata>,
+  sortDirection: DocumentTreeSortDirection,
+): TreeNodeData[] {
   return nodes
     .map((node) => ({
       ...node,
-      children: sortTree(node.children),
+      children: sortTree(node.children, sortMode, fileMetadata, sortDirection),
     }))
     .sort((left, right) => {
       if (left.kind !== right.kind) {
         return left.kind === "directory" ? -1 : 1;
       }
 
-      return left.name.localeCompare(right.name);
+      const directionMultiplier = sortDirection === "asc" ? 1 : -1;
+
+      if (sortMode === "modified") {
+        const modifiedComparison = modifiedAt(left, fileMetadata) - modifiedAt(right, fileMetadata);
+        if (modifiedComparison !== 0) {
+          return modifiedComparison * directionMultiplier;
+        }
+      }
+
+      if (sortMode === "size") {
+        const sizeComparison = sizeBytes(left, fileMetadata) - sizeBytes(right, fileMetadata);
+        if (sizeComparison !== 0) {
+          return sizeComparison * directionMultiplier;
+        }
+      }
+
+      const leftValue = sortMode === "path" ? left.path : left.name;
+      const rightValue = sortMode === "path" ? right.path : right.name;
+      return leftValue.localeCompare(rightValue) * directionMultiplier;
     });
+}
+
+function modifiedAt(node: TreeNodeData, fileMetadata: Record<string, MarkdownFileMetadata>): number {
+  if (node.kind === "file") {
+    return fileMetadata[node.path]?.modifiedAt ?? 0;
+  }
+
+  return Math.max(0, ...node.children.map((child) => modifiedAt(child, fileMetadata)));
+}
+
+function sizeBytes(node: TreeNodeData, fileMetadata: Record<string, MarkdownFileMetadata>): number {
+  if (node.kind === "file") {
+    return fileMetadata[node.path]?.sizeBytes ?? 0;
+  }
+
+  return Math.max(0, ...node.children.map((child) => sizeBytes(child, fileMetadata)));
+}
+
+export function formatModifiedAt(modifiedAt: number | null | undefined, now = Date.now()): string | null {
+  if (!modifiedAt) {
+    return null;
+  }
+
+  const diffMs = Math.max(0, now - modifiedAt);
+  const minute = 60 * 1000;
+  const hour = 60 * minute;
+  const day = 24 * hour;
+
+  if (diffMs < minute) {
+    return "방금 전";
+  }
+
+  if (diffMs < hour) {
+    return `${Math.floor(diffMs / minute)}분 전`;
+  }
+
+  if (diffMs < day) {
+    return `${Math.floor(diffMs / hour)}시간 전`;
+  }
+
+  if (diffMs < 7 * day) {
+    return `${Math.floor(diffMs / day)}일 전`;
+  }
+
+  return new Intl.DateTimeFormat("ko-KR", {
+    month: "short",
+    day: "numeric",
+  }).format(new Date(modifiedAt));
+}
+
+export function formatFileSize(sizeBytes: number | null | undefined): string | null {
+  if (sizeBytes == null) {
+    return null;
+  }
+
+  if (sizeBytes < 1024) {
+    return `${sizeBytes} B`;
+  }
+
+  const units = ["KB", "MB", "GB"];
+  let value = sizeBytes / 1024;
+  let unitIndex = 0;
+
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024;
+    unitIndex += 1;
+  }
+
+  return `${value >= 10 ? value.toFixed(0) : value.toFixed(1)} ${units[unitIndex]}`;
 }

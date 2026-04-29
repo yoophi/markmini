@@ -2,7 +2,10 @@ import { create } from "zustand";
 
 import { extractHeadings } from "@/lib/markdown";
 import { getInitialSession, readMarkdownFile, refreshSession, type ScanProgressPayload } from "@/lib/tauri";
-import type { HeadingItem, ScanStatus } from "@/types/content";
+import type { HeadingItem, MarkdownFileMetadata, ScanStatus } from "@/types/content";
+
+export const RECENT_DOCUMENTS_STORAGE_KEY_PREFIX = "markmini.recentDocuments";
+export const FAVORITE_DOCUMENTS_STORAGE_KEY_PREFIX = "markmini.favoriteDocuments";
 
 type BootstrapState = "idle" | "loading" | "ready" | "error";
 type DocumentState = "idle" | "loading" | "ready" | "error";
@@ -12,7 +15,10 @@ interface AppStore {
   error: string | null;
   rootDir: string | null;
   files: string[];
+  fileMetadata: Record<string, MarkdownFileMetadata>;
   fileSet: ReadonlySet<string>;
+  recentDocuments: string[];
+  favoriteDocuments: string[];
   scanState: ScanStatus;
   scanSkippedPaths: string[];
   scanSkippedPathSet: ReadonlySet<string>;
@@ -27,6 +33,7 @@ interface AppStore {
     error: string | null;
   };
   setSidebarOpen: (open: boolean) => void;
+  toggleFavoriteDocument: (relativePath: string) => void;
   applyScanProgress: (payload: ScanProgressPayload) => Promise<void>;
   bootstrap: () => Promise<void>;
   openDocument: (relativePath: string) => Promise<void>;
@@ -39,7 +46,10 @@ export const useAppStore = create<AppStore>((set, get) => ({
   error: null,
   rootDir: null,
   files: [],
+  fileMetadata: {},
   fileSet: new Set(),
+  recentDocuments: [],
+  favoriteDocuments: [],
   scanState: "idle",
   scanSkippedPaths: [],
   scanSkippedPathSet: new Set(),
@@ -49,6 +59,16 @@ export const useAppStore = create<AppStore>((set, get) => ({
   isSidebarOpen: false,
   document: createEmptyDocument(),
   setSidebarOpen: (open) => set({ isSidebarOpen: open }),
+  toggleFavoriteDocument: (relativePath) => {
+    const state = get();
+    if (!state.fileSet.has(relativePath)) {
+      return;
+    }
+
+    const favoriteDocuments = toggleDocumentPath(state.favoriteDocuments, relativePath, state.fileSet, 50);
+    writeStoredFavoriteDocuments(state.rootDir, favoriteDocuments);
+    set({ favoriteDocuments });
+  },
   applyScanProgress: async (payload) => {
     const state = get();
     const { values: files, valueSet: fileSet } = mergeSortedUnique(
@@ -69,6 +89,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
     set({
       bootstrapState: state.bootstrapState === "loading" ? "ready" : state.bootstrapState,
       files,
+      fileMetadata: mergeFileMetadata(state.fileMetadata, payload.fileMetadata),
       fileSet,
       scanState: payload.status,
       scanSkippedPaths,
@@ -95,11 +116,16 @@ export const useAppStore = create<AppStore>((set, get) => ({
     try {
       const session = await getInitialSession();
       const { values: files, valueSet: fileSet } = mergeSortedUnique([], new Set(), session.files);
+      const recentDocuments = pruneDocumentList(readStoredRecentDocuments(session.rootDir), fileSet);
+      const favoriteDocuments = pruneDocumentList(readStoredFavoriteDocuments(session.rootDir), fileSet, 50);
       set({
         bootstrapState: "ready",
         rootDir: session.rootDir,
         files,
+        fileMetadata: mergeFileMetadata({}, session.fileMetadata),
         fileSet,
+        recentDocuments,
+        favoriteDocuments,
         selectedFile: session.selectedFile,
       });
 
@@ -127,8 +153,12 @@ export const useAppStore = create<AppStore>((set, get) => ({
         return;
       }
 
+      const recentDocuments = addRecentDocument(get().recentDocuments, document.relativePath, get().fileSet);
+      writeStoredRecentDocuments(get().rootDir, recentDocuments);
+
       set({
         selectedFile: document.relativePath,
+        recentDocuments,
         document: createReadyDocument(document.content, document.headings),
       });
     } catch (error) {
@@ -178,10 +208,17 @@ export const useAppStore = create<AppStore>((set, get) => ({
       const session = await refreshSession();
       const { values: files, valueSet: fileSet } = mergeSortedUnique([], new Set(), session.files);
       const selectedFile = session.selectedFile;
+      const recentDocuments = pruneDocumentList(previousState.recentDocuments, fileSet);
+      const favoriteDocuments = pruneDocumentList(previousState.favoriteDocuments, fileSet, 50);
+      writeStoredRecentDocuments(session.rootDir, recentDocuments);
+      writeStoredFavoriteDocuments(session.rootDir, favoriteDocuments);
       set({
         rootDir: session.rootDir,
         files,
+        fileMetadata: mergeFileMetadata({}, session.fileMetadata),
         fileSet,
+        recentDocuments,
+        favoriteDocuments,
         selectedFile,
         scanState: "completed",
       });
@@ -258,4 +295,101 @@ function mergeSortedUnique(current: string[], currentSet: ReadonlySet<string>, i
   }
 
   return { values: [...next].sort(), valueSet: next };
+}
+
+export function mergeFileMetadata(
+  current: Record<string, MarkdownFileMetadata>,
+  incoming: MarkdownFileMetadata[],
+): Record<string, MarkdownFileMetadata> {
+  if (incoming.length === 0) {
+    return current;
+  }
+
+  const next = { ...current };
+  for (const metadata of incoming) {
+    next[metadata.relativePath] = metadata;
+  }
+  return next;
+}
+
+export function addRecentDocument(current: string[], documentPath: string, availableFiles: ReadonlySet<string>, limit = 5) {
+  if (!availableFiles.has(documentPath)) {
+    return current;
+  }
+
+  return [documentPath, ...current.filter((path) => path !== documentPath && availableFiles.has(path))].slice(0, limit);
+}
+
+export function pruneDocumentList(paths: string[], availableFiles: ReadonlySet<string>, limit = 5) {
+  return paths.filter((path, index) => index === paths.indexOf(path) && availableFiles.has(path)).slice(0, limit);
+}
+
+export function toggleDocumentPath(current: string[], documentPath: string, availableFiles: ReadonlySet<string>, limit = 50) {
+  if (!availableFiles.has(documentPath)) {
+    return current;
+  }
+
+  if (current.includes(documentPath)) {
+    return current.filter((path) => path !== documentPath);
+  }
+
+  return pruneDocumentList([documentPath, ...current], availableFiles, limit);
+}
+
+export function readStoredRecentDocuments(rootDir: string | null) {
+  return readStoredDocumentList(rootDir, RECENT_DOCUMENTS_STORAGE_KEY_PREFIX);
+}
+
+export function writeStoredRecentDocuments(rootDir: string | null, recentDocuments: string[]) {
+  writeStoredDocumentList(rootDir, RECENT_DOCUMENTS_STORAGE_KEY_PREFIX, recentDocuments);
+}
+
+export function readStoredFavoriteDocuments(rootDir: string | null) {
+  return readStoredDocumentList(rootDir, FAVORITE_DOCUMENTS_STORAGE_KEY_PREFIX);
+}
+
+export function writeStoredFavoriteDocuments(rootDir: string | null, favoriteDocuments: string[]) {
+  writeStoredDocumentList(rootDir, FAVORITE_DOCUMENTS_STORAGE_KEY_PREFIX, favoriteDocuments);
+}
+
+export function recentDocumentsStorageKey(rootDir: string) {
+  return documentListStorageKey(RECENT_DOCUMENTS_STORAGE_KEY_PREFIX, rootDir);
+}
+
+export function favoriteDocumentsStorageKey(rootDir: string) {
+  return documentListStorageKey(FAVORITE_DOCUMENTS_STORAGE_KEY_PREFIX, rootDir);
+}
+
+function readStoredDocumentList(rootDir: string | null, keyPrefix: string) {
+  if (!rootDir || typeof window === "undefined") {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(documentListStorageKey(keyPrefix, rootDir)) ?? "[]");
+    return Array.isArray(parsed) ? parsed.filter((entry): entry is string => typeof entry === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeStoredDocumentList(rootDir: string | null, keyPrefix: string, paths: string[]) {
+  if (!rootDir || typeof window === "undefined") {
+    return;
+  }
+
+  try {
+    const key = documentListStorageKey(keyPrefix, rootDir);
+    if (paths.length > 0) {
+      window.localStorage.setItem(key, JSON.stringify(paths));
+    } else {
+      window.localStorage.removeItem(key);
+    }
+  } catch {
+    // Ignore storage failures; recents still work for the current window state.
+  }
+}
+
+function documentListStorageKey(keyPrefix: string, rootDir: string) {
+  return `${keyPrefix}:${rootDir}`;
 }
