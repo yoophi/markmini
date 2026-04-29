@@ -1,7 +1,20 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { getInitialSession, readMarkdownFile, refreshSession } from "@/lib/tauri";
-import { useAppStore } from "@/store/app-store";
+import {
+  RECENT_DOCUMENTS_STORAGE_KEY_PREFIX,
+  FAVORITE_DOCUMENTS_STORAGE_KEY_PREFIX,
+  addRecentDocument,
+  favoriteDocumentsStorageKey,
+  pruneDocumentList,
+  readStoredRecentDocuments,
+  readStoredFavoriteDocuments,
+  recentDocumentsStorageKey,
+  toggleDocumentPath,
+  useAppStore,
+  writeStoredRecentDocuments,
+  writeStoredFavoriteDocuments,
+} from "@/store/app-store";
 import type { HeadingItem, MarkdownDocument } from "@/types/content";
 
 vi.mock("@/lib/tauri", () => ({
@@ -37,7 +50,10 @@ function resetStore() {
     error: null,
     rootDir: null,
     files: [],
+    fileMetadata: {},
     fileSet: new Set(),
+    recentDocuments: [],
+    favoriteDocuments: [],
     scanState: "idle",
     scanSkippedPaths: [],
     scanSkippedPathSet: new Set(),
@@ -64,6 +80,7 @@ describe("viewer app store", () => {
     vi.mocked(getInitialSession).mockResolvedValue({
       rootDir: "/vault",
       files: ["notes/a.md"],
+      fileMetadata: [{ relativePath: "notes/a.md", modifiedAt: 10, sizeBytes: 100 }],
       selectedFile: "notes/a.md",
     });
     vi.mocked(readMarkdownFile).mockResolvedValue(markdownDocument("notes/a.md", "# Title\n"));
@@ -77,6 +94,7 @@ describe("viewer app store", () => {
       rootDir: "/vault",
       files: ["notes/a.md"],
       selectedFile: "notes/a.md",
+      recentDocuments: ["notes/a.md"],
     });
     expect(useAppStore.getState().document).toMatchObject({
       state: "ready",
@@ -84,6 +102,51 @@ describe("viewer app store", () => {
       headings: [heading],
       error: null,
     });
+  });
+
+  it("restores persisted recent documents during bootstrap", async () => {
+    const localStorage = installLocalStorageMock();
+    localStorage.setItem(recentDocumentsStorageKey("/vault"), JSON.stringify(["notes/b.md", "missing.md"]));
+    vi.mocked(getInitialSession).mockResolvedValue({
+      rootDir: "/vault",
+      files: ["notes/a.md", "notes/b.md"],
+      fileMetadata: [],
+      selectedFile: null,
+    });
+
+    await useAppStore.getState().bootstrap();
+
+    expect(useAppStore.getState().recentDocuments).toEqual(["notes/b.md"]);
+  });
+
+  it("restores persisted favorite documents during bootstrap", async () => {
+    const localStorage = installLocalStorageMock();
+    localStorage.setItem(favoriteDocumentsStorageKey("/vault"), JSON.stringify(["notes/b.md", "missing.md"]));
+    vi.mocked(getInitialSession).mockResolvedValue({
+      rootDir: "/vault",
+      files: ["notes/a.md", "notes/b.md"],
+      fileMetadata: [],
+      selectedFile: null,
+    });
+
+    await useAppStore.getState().bootstrap();
+
+    expect(useAppStore.getState().favoriteDocuments).toEqual(["notes/b.md"]);
+  });
+
+  it("toggles favorite documents and persists relative paths", () => {
+    const localStorage = installLocalStorageMock();
+    useAppStore.setState({ rootDir: "/vault", files: ["notes/a.md"], fileSet: new Set(["notes/a.md"]) });
+
+    useAppStore.getState().toggleFavoriteDocument("notes/a.md");
+
+    expect(useAppStore.getState().favoriteDocuments).toEqual(["notes/a.md"]);
+    expect(localStorage.getItem(favoriteDocumentsStorageKey("/vault"))).toBe(JSON.stringify(["notes/a.md"]));
+
+    useAppStore.getState().toggleFavoriteDocument("notes/a.md");
+
+    expect(useAppStore.getState().favoriteDocuments).toEqual([]);
+    expect(localStorage.getItem(favoriteDocumentsStorageKey("/vault"))).toBeNull();
   });
 
   it("ignores stale document reads when a newer selection finishes first", async () => {
@@ -114,6 +177,7 @@ describe("viewer app store", () => {
     vi.mocked(refreshSession).mockResolvedValue({
       rootDir: "/vault",
       files: ["notes/a.md", "notes/b.md"],
+      fileMetadata: [{ relativePath: "notes/a.md", modifiedAt: 20, sizeBytes: 200 }],
       selectedFile: "notes/a.md",
     });
     vi.mocked(readMarkdownFile).mockResolvedValue(markdownDocument("notes/a.md", "# Reloaded\n", []));
@@ -156,4 +220,83 @@ describe("viewer app store", () => {
       content: "# Existing\n",
     });
   });
+
+  it("tracks recently opened documents without duplicates", async () => {
+    useAppStore.setState({ files: ["notes/a.md", "notes/b.md"], fileSet: new Set(["notes/a.md", "notes/b.md"]) });
+    vi.mocked(readMarkdownFile)
+      .mockResolvedValueOnce(markdownDocument("notes/a.md", "# A\n"))
+      .mockResolvedValueOnce(markdownDocument("notes/b.md", "# B\n"))
+      .mockResolvedValueOnce(markdownDocument("notes/a.md", "# A again\n"));
+
+    await useAppStore.getState().openDocument("notes/a.md");
+    await useAppStore.getState().openDocument("notes/b.md");
+    await useAppStore.getState().openDocument("notes/a.md");
+
+    expect(useAppStore.getState().recentDocuments).toEqual(["notes/a.md", "notes/b.md"]);
+  });
 });
+
+describe("recent document helpers", () => {
+  it("adds available documents most-recent-first and enforces a limit", () => {
+    const availableFiles = new Set(["a.md", "b.md", "c.md"]);
+
+    expect(addRecentDocument(["b.md", "c.md"], "a.md", availableFiles, 2)).toEqual(["a.md", "b.md"]);
+    expect(addRecentDocument(["a.md", "b.md"], "a.md", availableFiles)).toEqual(["a.md", "b.md"]);
+  });
+
+  it("prunes stale and duplicate document paths", () => {
+    expect(pruneDocumentList(["a.md", "missing.md", "a.md", "b.md"], new Set(["a.md", "b.md"]))).toEqual([
+      "a.md",
+      "b.md",
+    ]);
+  });
+
+  it("toggles available document paths without duplicates", () => {
+    expect(toggleDocumentPath(["b.md"], "a.md", new Set(["a.md", "b.md"]))).toEqual(["a.md", "b.md"]);
+    expect(toggleDocumentPath(["a.md", "b.md"], "a.md", new Set(["a.md", "b.md"]))).toEqual(["b.md"]);
+    expect(toggleDocumentPath(["a.md"], "missing.md", new Set(["a.md"]))).toEqual(["a.md"]);
+  });
+
+  it("persists recent paths per root without storing content", () => {
+    const localStorage = installLocalStorageMock();
+
+    writeStoredRecentDocuments("/vault", ["a.md", "b.md"]);
+
+    expect(localStorage.getItem(`${RECENT_DOCUMENTS_STORAGE_KEY_PREFIX}:/vault`)).toBe(JSON.stringify(["a.md", "b.md"]));
+    expect(readStoredRecentDocuments("/vault")).toEqual(["a.md", "b.md"]);
+  });
+
+  it("removes persisted recents when the list is empty", () => {
+    const localStorage = installLocalStorageMock();
+    localStorage.setItem(recentDocumentsStorageKey("/vault"), JSON.stringify(["a.md"]));
+
+    writeStoredRecentDocuments("/vault", []);
+
+    expect(localStorage.getItem(recentDocumentsStorageKey("/vault"))).toBeNull();
+  });
+
+  it("persists favorite paths per root without storing content", () => {
+    const localStorage = installLocalStorageMock();
+
+    writeStoredFavoriteDocuments("/vault", ["a.md"]);
+
+    expect(localStorage.getItem(`${FAVORITE_DOCUMENTS_STORAGE_KEY_PREFIX}:/vault`)).toBe(JSON.stringify(["a.md"]));
+    expect(readStoredFavoriteDocuments("/vault")).toEqual(["a.md"]);
+  });
+});
+
+function installLocalStorageMock() {
+  const values = new Map<string, string>();
+  const localStorage = {
+    getItem: (key: string) => values.get(key) ?? null,
+    removeItem: (key: string) => values.delete(key),
+    setItem: (key: string, value: string) => values.set(key, value),
+  };
+
+  Object.defineProperty(globalThis, "window", {
+    value: { localStorage },
+    configurable: true,
+  });
+
+  return localStorage;
+}
