@@ -94,8 +94,19 @@ ln -sf "$(pwd)/src-tauri/target/release/markmini" /usr/local/bin/markmini
 
 ## 검증
 
+일반적인 PR 검증은 아래 aggregate script로 실행합니다.
+
 ```bash
+pnpm check              # test + typecheck + frontend build
+pnpm check:tauri        # Rust test + cargo check
+```
+
+개별 단계만 확인할 때는 아래 명령을 사용합니다.
+
+```bash
+pnpm test               # Vitest 테스트
 pnpm typecheck          # TypeScript 타입 체크
 pnpm build              # Vite 프론트엔드 빌드
+cargo test --manifest-path src-tauri/Cargo.toml   # Rust 테스트
 cargo check --manifest-path src-tauri/Cargo.toml  # Rust 컴파일 체크
 ```
