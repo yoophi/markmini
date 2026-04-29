@@ -1,5 +1,5 @@
-import { useEffect } from "react";
-import { FileText, FolderTree, Menu, RefreshCcw, TextSearch } from "lucide-react";
+import { useEffect, useState } from "react";
+import { FileText, FolderTree, ListTree, Menu, RefreshCcw, TextSearch } from "lucide-react";
 
 import { FileTree } from "@/components/file-tree";
 import { MarkdownView } from "@/components/markdown-view";
@@ -7,6 +7,7 @@ import { TableOfContents } from "@/components/table-of-contents";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
+import { cn } from "@/lib/utils";
 import { useAppStore } from "@/store/app-store";
 import { subscribeToFsChanges, subscribeToScanProgress } from "@/store/fs-watcher";
 
@@ -29,6 +30,7 @@ function App() {
   const isSidebarOpen = useAppStore((state) => state.isSidebarOpen);
   const setSidebarOpen = useAppStore((state) => state.setSidebarOpen);
   const toggleFavoriteDocument = useAppStore((state) => state.toggleFavoriteDocument);
+  const [isTocVisible, setTocVisible] = useState(true);
 
   useEffect(() => {
     void bootstrap();
@@ -131,13 +133,26 @@ function App() {
               </div>
             </aside>
 
-            <section className="relative min-h-0 min-w-0 xl:pr-[296px]">
-              <Card className="min-h-[70vh] min-w-0 overflow-hidden">
-                <CardContent className="flex h-full flex-col p-0">
+            <section className={cn("relative min-h-0 min-w-0", isTocVisible ? "xl:pr-[296px]" : "")}>
+              <Card className="min-h-[70vh] min-w-0 max-w-full overflow-hidden">
+                <CardContent className="flex h-full min-w-0 max-w-full flex-col p-0">
                   <div className="border-b border-border/60 px-5 py-4">
-                    <div className="flex items-center gap-2 text-sm font-medium uppercase tracking-widest text-muted-foreground">
-                      <TextSearch className="h-4 w-4" />
-                      Reader
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-2 text-sm font-medium uppercase tracking-widest text-muted-foreground">
+                        <TextSearch className="h-4 w-4" />
+                        Reader
+                      </div>
+                      <Button
+                        type="button"
+                        variant={isTocVisible ? "default" : "outline"}
+                        size="sm"
+                        className="hidden xl:inline-flex"
+                        aria-pressed={isTocVisible}
+                        onClick={() => setTocVisible((visible) => !visible)}
+                      >
+                        <ListTree className="mr-2 h-4 w-4" />
+                        TOC
+                      </Button>
                     </div>
                     <h1 className="mt-2 truncate font-display text-2xl font-semibold text-foreground">{selectedLabel}</h1>
                   </div>
@@ -163,16 +178,18 @@ function App() {
                 </CardContent>
               </Card>
 
-              <aside className="hidden xl:block">
-                <div className="fixed right-[max(1.5rem,calc((100vw-1600px)/2+1.5rem))] top-28 z-20 w-[280px]">
-                  {scanError ? (
-                    <div className="mb-4 rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-                      {scanError}
-                    </div>
-                  ) : null}
-                  <TableOfContents headings={document.headings} />
-                </div>
-              </aside>
+              {isTocVisible ? (
+                <aside className="hidden xl:block">
+                  <div className="fixed right-[max(1.5rem,calc((100vw-1600px)/2+1.5rem))] top-28 z-20 w-[280px]">
+                    {scanError ? (
+                      <div className="mb-4 rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+                        {scanError}
+                      </div>
+                    ) : null}
+                    <TableOfContents headings={document.headings} />
+                  </div>
+                </aside>
+              ) : null}
             </section>
           </div>
         )}

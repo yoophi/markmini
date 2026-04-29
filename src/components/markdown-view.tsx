@@ -4,7 +4,6 @@ import rehypeHighlight from "rehype-highlight";
 import remarkGfm from "remark-gfm";
 
 import { MermaidBlock } from "@/components/mermaid-block";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { focusHeadingById, focusHeadingByIdWhenReady } from "@/lib/heading-navigation";
 import { createSlugger, extractCodeText } from "@/lib/markdown";
 import { resolveMarkdownHref } from "@/lib/path";
@@ -46,7 +45,7 @@ const MERMAID_START_KEYWORDS = new Set([
 ]);
 
 const markdownClassName = [
-  "prose prose-slate mx-auto w-full max-w-none overflow-x-hidden px-5 py-8 text-foreground sm:px-8 sm:py-10",
+  "prose prose-slate mx-auto w-full min-w-0 max-w-full overflow-x-hidden px-5 py-8 text-foreground sm:px-8 sm:py-10",
   "prose-headings:scroll-mt-24 prose-headings:font-display prose-headings:text-primary prose-headings:focus:outline-none prose-headings:focus-visible:ring-2 prose-headings:focus-visible:ring-ring",
   "prose-h1:mt-0 prose-h1:text-4xl prose-h1:leading-tight",
   "prose-h2:mt-12 prose-h2:text-2xl prose-h2:leading-tight",
@@ -54,7 +53,6 @@ const markdownClassName = [
   "prose-p:text-[15px] prose-p:leading-8 prose-li:text-[15px] prose-li:leading-8",
   "prose-a:text-primary prose-a:decoration-accent-foreground/30 prose-a:underline-offset-4",
   "prose-strong:text-primary prose-code:rounded-md prose-code:bg-secondary prose-code:px-1.5 prose-code:py-0.5 prose-code:text-primary",
-  "prose-pre:overflow-x-auto prose-pre:rounded-lg prose-pre:border prose-pre:border-border prose-pre:bg-primary prose-pre:text-sm prose-pre:text-primary-foreground prose-pre:shadow-inner",
   "prose-blockquote:border-accent prose-blockquote:bg-background prose-blockquote:px-4 prose-blockquote:py-1 prose-blockquote:font-normal prose-blockquote:italic",
   "prose-hr:border-border",
   "[&_code::after]:content-none [&_code::before]:content-none [&_pre_code]:rounded-none [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_pre_code]:font-normal [&_pre_code]:text-inherit",
@@ -73,7 +71,7 @@ export function MarkdownView({ content, currentRelativePath, knownDocuments, onN
   const createHeadingId = createSlugger();
 
   return (
-    <ScrollArea className="h-[calc(100vh-13rem)] min-w-0">
+    <div className="h-[calc(100vh-13rem)] w-full min-w-0 max-w-full overflow-x-hidden overflow-y-auto">
       <div className={markdownClassName}>
         <ReactMarkdown
           remarkPlugins={[remarkGfm]}
@@ -127,7 +125,7 @@ export function MarkdownView({ content, currentRelativePath, knownDocuments, onN
             );
           },
           table: ({ children }) => (
-            <div className="not-prose my-6 max-w-full overflow-x-auto rounded-lg border border-border bg-background">
+            <div className="not-prose my-6 w-full min-w-0 max-w-full overflow-x-auto rounded-lg border border-border bg-background shadow-sm">
               <table className="w-max min-w-full border-collapse text-sm">{children}</table>
             </div>
           ),
@@ -150,7 +148,11 @@ export function MarkdownView({ content, currentRelativePath, knownDocuments, onN
               }
             }
 
-            return <pre className="max-w-full overflow-x-auto">{children}</pre>;
+            return (
+              <div className="not-prose my-6 w-full min-w-0 max-w-full overflow-x-auto rounded-lg border border-border bg-primary shadow-inner">
+                <pre className="m-0 min-w-max bg-transparent p-4 text-sm text-primary-foreground">{children}</pre>
+              </div>
+            );
           },
           code: ({ className, children }) => <code className={className}>{children}</code>,
           h1: ({ children }) => {
@@ -182,6 +184,6 @@ export function MarkdownView({ content, currentRelativePath, knownDocuments, onN
           {content}
         </ReactMarkdown>
       </div>
-    </ScrollArea>
+    </div>
   );
 }
