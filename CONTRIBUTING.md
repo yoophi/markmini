@@ -16,7 +16,7 @@ Relevant docs:
 
 - [Branch Policy](./docs/branch-policy.md)
 - [Document Tree PR Status](./docs/document-tree-pr-status.md)
-- [Markdown Editing Consolidation Checklist](./docs/markdown-editing-consolidation.md)
+- Markdown Editing Consolidation Checklist: tracked in [#131](https://github.com/yoophi/markmini/issues/131) / [#132](https://github.com/yoophi/markmini/pull/132) until the checklist lands on `main`.
 
 ## Open an issue first
 
