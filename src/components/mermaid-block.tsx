@@ -4,7 +4,8 @@ interface MermaidBlockProps {
   chart: string;
 }
 
-const shellClassName = "not-prose my-6 max-w-full overflow-x-auto rounded-lg border border-border bg-background p-4 shadow-sm";
+const shellClassName =
+  "not-prose my-6 w-full min-w-0 max-w-full overflow-x-auto rounded-lg border border-border bg-background p-4 shadow-sm";
 
 export function MermaidBlock({ chart }: MermaidBlockProps) {
   const reactId = useId();
@@ -62,10 +63,5 @@ export function MermaidBlock({ chart }: MermaidBlockProps) {
     return <div className={`${shellClassName} text-sm text-muted-foreground`}>Mermaid chart 렌더링 중...</div>;
   }
 
-  return (
-    <div
-      className={`${shellClassName} [&_svg]:mx-auto [&_svg]:block [&_svg]:h-auto [&_svg]:max-w-full`}
-      dangerouslySetInnerHTML={{ __html: svg }}
-    />
-  );
+  return <div className={`${shellClassName} [&_svg]:mx-auto [&_svg]:block [&_svg]:h-auto`} dangerouslySetInnerHTML={{ __html: svg }} />;
 }
