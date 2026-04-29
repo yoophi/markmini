@@ -1,0 +1,74 @@
+name: Feature request
+description: Propose a MarkMini improvement or follow-up task
+title: "feat: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this template for viewer UX, navigation, validation, docs, or editing-branch proposals.
+
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Scope
+      description: Which branch policy area does this belong to?
+      options:
+        - Viewer-only main
+        - Editing/write flow
+        - Documentation or process
+        - Unsure
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or motivation
+      description: What user or maintenance problem should this solve?
+      placeholder: Describe the friction, missing capability, or follow-up need.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: What should change?
+      placeholder: Describe the intended behavior or implementation direction.
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: What must be true before this issue is complete?
+      placeholder: |
+        - ...
+        - ...
+        - ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: validation
+    attributes:
+      label: Suggested validation
+      description: Which checks or manual verification should cover this work?
+      placeholder: |
+        - pnpm test
+        - pnpm typecheck
+        - pnpm build
+        - cargo test --manifest-path src-tauri/Cargo.toml
+        - cargo check --manifest-path src-tauri/Cargo.toml
+
+  - type: checkboxes
+    id: policy
+    attributes:
+      label: Branch policy check
+      options:
+        - label: If this targets `main`, it keeps `main` viewer-only and does not introduce edit/save/write flows.
+          required: false
+        - label: If this is editing work, it should target `feat/markdown-editing` or a branch stacked on top of it.
+          required: false
