@@ -24,6 +24,7 @@ interface AppStore {
   scanSkippedPathSet: ReadonlySet<string>;
   scanError: string | null;
   selectedFile: string | null;
+  pendingOpenDocument: string | null;
   documentLoadToken: number;
   isSidebarOpen: boolean;
   document: {
@@ -34,6 +35,7 @@ interface AppStore {
   };
   setSidebarOpen: (open: boolean) => void;
   toggleFavoriteDocument: (relativePath: string) => void;
+  requestOpenDocument: (relativePath: string) => Promise<void>;
   applyScanProgress: (payload: ScanProgressPayload) => Promise<void>;
   bootstrap: () => Promise<void>;
   openDocument: (relativePath: string) => Promise<void>;
@@ -55,6 +57,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
   scanSkippedPathSet: new Set(),
   scanError: null,
   selectedFile: null,
+  pendingOpenDocument: null,
   documentLoadToken: 0,
   isSidebarOpen: false,
   document: createEmptyDocument(),
@@ -69,6 +72,16 @@ export const useAppStore = create<AppStore>((set, get) => ({
     writeStoredFavoriteDocuments(state.rootDir, favoriteDocuments);
     set({ favoriteDocuments });
   },
+  requestOpenDocument: async (relativePath) => {
+    const state = get();
+    if (state.fileSet.has(relativePath)) {
+      set({ pendingOpenDocument: null });
+      await get().openDocument(relativePath);
+      return;
+    }
+
+    set({ pendingOpenDocument: relativePath });
+  },
   applyScanProgress: async (payload) => {
     const state = get();
     const { values: files, valueSet: fileSet } = mergeSortedUnique(
@@ -81,10 +94,13 @@ export const useAppStore = create<AppStore>((set, get) => ({
       state.scanSkippedPathSet,
       payload.skippedPaths,
     );
+    const pendingOpenDocument = state.pendingOpenDocument;
+    const shouldOpenPendingDocument = Boolean(pendingOpenDocument && fileSet.has(pendingOpenDocument));
     const shouldOpenSelectedFile =
       payload.selectedFile &&
       payload.selectedFile !== state.selectedFile &&
-      (!state.selectedFile || state.document.state === "idle");
+      (!state.selectedFile || state.document.state === "idle") &&
+      !shouldOpenPendingDocument;
 
     set({
       bootstrapState: state.bootstrapState === "loading" ? "ready" : state.bootstrapState,
@@ -95,8 +111,14 @@ export const useAppStore = create<AppStore>((set, get) => ({
       scanSkippedPaths,
       scanSkippedPathSet,
       scanError: payload.error,
+      pendingOpenDocument: shouldOpenPendingDocument ? null : pendingOpenDocument,
       selectedFile: shouldOpenSelectedFile ? payload.selectedFile : state.selectedFile,
     });
+
+    if (shouldOpenPendingDocument && pendingOpenDocument) {
+      await get().openDocument(pendingOpenDocument);
+      return;
+    }
 
     if (shouldOpenSelectedFile && payload.selectedFile) {
       await get().openDocument(payload.selectedFile);

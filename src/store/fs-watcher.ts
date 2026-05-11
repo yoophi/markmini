@@ -1,6 +1,6 @@
 import type { UnlistenFn } from "@tauri-apps/api/event";
 
-import { listenToFsChanges, listenToScanProgress } from "@/lib/tauri";
+import { listenToFsChanges, listenToOpenDocument, listenToScanProgress, listenToWindowHighlight } from "@/lib/tauri";
 import { useAppStore } from "@/store/app-store";
 
 const DEBOUNCE_MS = 200;
@@ -48,4 +48,16 @@ export function subscribeToScanProgress(): Promise<UnlistenFn> {
   return listenToScanProgress((payload) => {
     void useAppStore.getState().applyScanProgress(payload);
   });
+}
+
+export async function subscribeToWindowCommands(onHighlight: () => void): Promise<UnlistenFn> {
+  const unlistenOpenDocument = await listenToOpenDocument((payload) => {
+    void useAppStore.getState().requestOpenDocument(payload.relativePath);
+  });
+  const unlistenHighlight = await listenToWindowHighlight(onHighlight);
+
+  return () => {
+    unlistenOpenDocument();
+    unlistenHighlight();
+  };
 }

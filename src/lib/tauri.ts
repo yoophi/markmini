@@ -17,8 +17,20 @@ export interface ScanProgressPayload {
   error: string | null;
 }
 
+export interface OpenDocumentPayload {
+  relativePath: string;
+}
+
+export interface CliInstallStatus {
+  installed: boolean;
+  path: string;
+  target: string;
+}
+
 const FS_CHANGE_EVENT = "markmini://fs-change";
 const SCAN_PROGRESS_EVENT = "markmini://scan-progress";
+const OPEN_DOCUMENT_EVENT = "markmini://open-document";
+const WINDOW_HIGHLIGHT_EVENT = "markmini://window-highlight";
 
 export function getInitialSession() {
   return invoke<InitialSession>("get_initial_session");
@@ -32,10 +44,26 @@ export function readMarkdownFile(relativePath: string) {
   return invoke<MarkdownDocument>("read_markdown_file", { relativePath });
 }
 
+export function installCli() {
+  return invoke<CliInstallStatus>("install_cli");
+}
+
+export function checkCliInstalled() {
+  return invoke<CliInstallStatus>("check_cli_installed");
+}
+
 export function listenToFsChanges(handler: (payload: FsChangePayload) => void): Promise<UnlistenFn> {
   return listen<FsChangePayload>(FS_CHANGE_EVENT, (event) => handler(event.payload));
 }
 
 export function listenToScanProgress(handler: (payload: ScanProgressPayload) => void): Promise<UnlistenFn> {
   return listen<ScanProgressPayload>(SCAN_PROGRESS_EVENT, (event) => handler(event.payload));
+}
+
+export function listenToOpenDocument(handler: (payload: OpenDocumentPayload) => void): Promise<UnlistenFn> {
+  return listen<OpenDocumentPayload>(OPEN_DOCUMENT_EVENT, (event) => handler(event.payload));
+}
+
+export function listenToWindowHighlight(handler: () => void): Promise<UnlistenFn> {
+  return listen(WINDOW_HIGHLIGHT_EVENT, () => handler());
 }

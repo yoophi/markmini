@@ -4,6 +4,7 @@ import rehypeHighlight from "rehype-highlight";
 import remarkGfm from "remark-gfm";
 
 import { MermaidBlock } from "@/components/mermaid-block";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { focusHeadingById, focusHeadingByIdWhenReady } from "@/lib/heading-navigation";
 import { createSlugger, extractCodeText } from "@/lib/markdown";
 import { resolveMarkdownHref } from "@/lib/path";
@@ -13,6 +14,7 @@ interface MarkdownViewProps {
   currentRelativePath: string | null;
   knownDocuments: string[];
   onNavigate: (relativePath: string) => Promise<void> | void;
+  heightClassName?: string;
 }
 
 const MERMAID_START_KEYWORDS = new Set([
@@ -67,11 +69,17 @@ function looksLikeMermaid(codeText: string): boolean {
   return MERMAID_START_KEYWORDS.has(firstToken);
 }
 
-export function MarkdownView({ content, currentRelativePath, knownDocuments, onNavigate }: MarkdownViewProps) {
+export function MarkdownView({
+  content,
+  currentRelativePath,
+  knownDocuments,
+  onNavigate,
+  heightClassName = "h-[calc(100vh-13rem)]",
+}: MarkdownViewProps) {
   const createHeadingId = createSlugger();
 
   return (
-    <div className="h-[calc(100vh-13rem)] w-full min-w-0 max-w-full overflow-x-hidden overflow-y-auto">
+    <ScrollArea className={heightClassName} scrollbars="both">
       <div className={markdownClassName}>
         <ReactMarkdown
           remarkPlugins={[remarkGfm]}
@@ -184,6 +192,6 @@ export function MarkdownView({ content, currentRelativePath, knownDocuments, onN
           {content}
         </ReactMarkdown>
       </div>
-    </div>
+    </ScrollArea>
   );
 }

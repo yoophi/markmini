@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { FileText, FolderTree, ListTree, Menu, RefreshCcw, TextSearch } from "lucide-react";
+import { FileText, FolderTree, ListTree, Menu, RefreshCcw, Terminal, TextSearch } from "lucide-react";
 
 import { FileTree } from "@/components/file-tree";
 import { MarkdownView } from "@/components/markdown-view";
@@ -7,9 +7,10 @@ import { TableOfContents } from "@/components/table-of-contents";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
+import { checkCliInstalled, installCli } from "@/lib/tauri";
 import { cn } from "@/lib/utils";
 import { useAppStore } from "@/store/app-store";
-import { subscribeToFsChanges, subscribeToScanProgress } from "@/store/fs-watcher";
+import { subscribeToFsChanges, subscribeToScanProgress, subscribeToWindowCommands } from "@/store/fs-watcher";
 
 function App() {
   const bootstrap = useAppStore((state) => state.bootstrap);
@@ -31,6 +32,9 @@ function App() {
   const setSidebarOpen = useAppStore((state) => state.setSidebarOpen);
   const toggleFavoriteDocument = useAppStore((state) => state.toggleFavoriteDocument);
   const [isTocVisible, setTocVisible] = useState(true);
+  const [isWindowHighlighted, setWindowHighlighted] = useState(false);
+  const [isCliInstalled, setCliInstalled] = useState(false);
+  const [isCliInstalling, setCliInstalling] = useState(false);
 
   useEffect(() => {
     void bootstrap();
@@ -50,13 +54,44 @@ function App() {
     };
   }, []);
 
+  useEffect(() => {
+    const unlistenPromise = subscribeToWindowCommands(() => {
+      setWindowHighlighted(true);
+      window.setTimeout(() => setWindowHighlighted(false), 900);
+    });
+    return () => {
+      void unlistenPromise.then((unlisten) => unlisten());
+    };
+  }, []);
+
+  useEffect(() => {
+    void checkCliInstalled()
+      .then((status) => setCliInstalled(status.installed))
+      .catch(() => setCliInstalled(false));
+  }, []);
+
+  const handleInstallCli = async () => {
+    setCliInstalling(true);
+    try {
+      const status = await installCli();
+      setCliInstalled(status.installed);
+    } finally {
+      setCliInstalling(false);
+    }
+  };
+
   const selectedSegments = selectedFile?.split("/") ?? [];
   const selectedLabel = selectedSegments[selectedSegments.length - 1] ?? "문서를 선택하세요";
 
   return (
     <div className="min-h-screen bg-background text-foreground">
       <main className="relative mx-auto flex min-h-screen max-w-[1600px] flex-col px-4 py-4 sm:px-6">
-        <header className="mb-4 rounded-lg border border-border bg-card px-4 py-3 text-card-foreground shadow-sm">
+        <header
+          className={cn(
+            "mb-4 rounded-lg border border-border bg-card px-4 py-3 text-card-foreground shadow-sm transition-shadow",
+            isWindowHighlighted && "ring-2 ring-primary ring-offset-2 ring-offset-background",
+          )}
+        >
           <div className="flex items-center justify-between gap-3">
             <div className="flex min-w-0 items-center gap-3">
               <div className="flex h-11 w-11 items-center justify-center rounded-md bg-primary text-primary-foreground shadow-sm">
@@ -105,6 +140,15 @@ function App() {
               <Button variant="outline" size="sm" onClick={() => void refresh()}>
                 <RefreshCcw className="mr-2 h-4 w-4" />
                 새로고침
+              </Button>
+              <Button
+                variant={isCliInstalled ? "default" : "outline"}
+                size="sm"
+                disabled={isCliInstalling}
+                onClick={() => void handleInstallCli()}
+              >
+                <Terminal className="mr-2 h-4 w-4" />
+                {isCliInstalling ? "설치 중" : isCliInstalled ? "CLI 설치됨" : "CLI 설치"}
               </Button>
             </div>
           </div>

@@ -51,6 +51,14 @@ struct MarkdownDocument {
     headings: Vec<HeadingItem>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CliInstallStatus {
+    installed: bool,
+    path: String,
+    target: String,
+}
+
 #[derive(Debug, Clone)]
 struct SessionState {
     root_dir: PathBuf,
@@ -80,6 +88,12 @@ struct FsChangePayload {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+struct OpenDocumentPayload {
+    relative_path: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 enum ScanStatus {
     Scanning,
     Completed,
@@ -99,6 +113,8 @@ struct ScanProgressPayload {
 
 const FS_CHANGE_EVENT: &str = "markmini://fs-change";
 const SCAN_PROGRESS_EVENT: &str = "markmini://scan-progress";
+const OPEN_DOCUMENT_EVENT: &str = "markmini://open-document";
+const WINDOW_HIGHLIGHT_EVENT: &str = "markmini://window-highlight";
 const SCAN_BATCH_SIZE: usize = 64;
 
 // ---------------------------------------------------------------------------
@@ -210,6 +226,67 @@ fn read_markdown_file(
     })
 }
 
+#[tauri::command]
+fn install_cli() -> Result<CliInstallStatus, String> {
+    let current_exe = env::current_exe()
+        .map_err(|error| format!("failed to locate app executable: {}", error))?;
+    let bin_dir = user_bin_dir()?;
+    fs::create_dir_all(&bin_dir).map_err(|error| {
+        format!(
+            "failed to create CLI install directory {}: {}",
+            bin_dir.display(),
+            error
+        )
+    })?;
+
+    let cli_path = bin_dir.join("mm");
+    if cli_path.is_dir() {
+        return Err(format!(
+            "cannot install mm because path is a directory: {}",
+            cli_path.display()
+        ));
+    }
+
+    let script = cli_launcher_script(&current_exe);
+    fs::write(&cli_path, script)
+        .map_err(|error| format!("failed to write {}: {}", cli_path.display(), error))?;
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&cli_path, fs::Permissions::from_mode(0o755)).map_err(|error| {
+            format!(
+                "failed to mark {} executable: {}",
+                cli_path.display(),
+                error
+            )
+        })?;
+    }
+
+    Ok(CliInstallStatus {
+        installed: true,
+        path: cli_path.to_string_lossy().to_string(),
+        target: current_exe.to_string_lossy().to_string(),
+    })
+}
+
+#[tauri::command]
+fn check_cli_installed() -> Result<CliInstallStatus, String> {
+    let current_exe = env::current_exe()
+        .map_err(|error| format!("failed to locate app executable: {}", error))?;
+    let cli_path = user_bin_dir()?.join("mm");
+    let expected = cli_launcher_script(&current_exe);
+    let installed = fs::read_to_string(&cli_path)
+        .map(|content| content == expected)
+        .unwrap_or(false);
+
+    Ok(CliInstallStatus {
+        installed,
+        path: cli_path.to_string_lossy().to_string(),
+        target: current_exe.to_string_lossy().to_string(),
+    })
+}
+
 // ---------------------------------------------------------------------------
 // Application entry point
 // ---------------------------------------------------------------------------
@@ -264,7 +341,9 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             get_initial_session,
             refresh_session,
-            read_markdown_file
+            read_markdown_file,
+            install_cli,
+            check_cli_installed
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -479,6 +558,19 @@ fn handle_new_instance(app: &tauri::AppHandle, argv: Vec<String>, cwd: String) {
     };
 
     let (root_dir, selected_hint) = split_target(target);
+    if let Some(label) = find_window_for_root(app, &root_dir) {
+        focus_window_for_target(app, &label, &root_dir, selected_hint.as_ref());
+        return;
+    }
+
+    create_session_window(app, root_dir, selected_hint);
+}
+
+fn create_session_window(
+    app: &tauri::AppHandle,
+    root_dir: PathBuf,
+    selected_hint: Option<PathBuf>,
+) {
     let state = app.state::<AppState>();
     let count = state.window_counter.fetch_add(1, Ordering::SeqCst) + 1;
     let label = format!("markmini-{}", count);
@@ -528,9 +620,46 @@ fn handle_new_instance(app: &tauri::AppHandle, argv: Vec<String>, cwd: String) {
     }
 }
 
+fn find_window_for_root(app: &tauri::AppHandle, root_dir: &Path) -> Option<String> {
+    let state = app.state::<AppState>();
+    let sessions = state.sessions.lock().ok()?;
+
+    sessions.iter().find_map(|(label, session)| {
+        if session.canonical_root_dir == root_dir {
+            Some(label.clone())
+        } else {
+            None
+        }
+    })
+}
+
+fn focus_window_for_target(
+    app: &tauri::AppHandle,
+    label: &str,
+    root_dir: &Path,
+    selected_hint: Option<&PathBuf>,
+) {
+    if let Some(window) = app.get_webview_window(label) {
+        let _ = window.show();
+        let _ = window.unminimize();
+        let _ = window.set_focus();
+        let _ = window.emit(WINDOW_HIGHLIGHT_EVENT, ());
+
+        if let Some(relative_path) = selected_hint.and_then(|hint| path_to_relative(root_dir, hint))
+        {
+            let _ = window.emit(OPEN_DOCUMENT_EVENT, OpenDocumentPayload { relative_path });
+        }
+    } else {
+        focus_any_window(app);
+    }
+}
+
 fn focus_any_window(app: &tauri::AppHandle) {
     if let Some(window) = app.webview_windows().values().next() {
+        let _ = window.show();
+        let _ = window.unminimize();
         let _ = window.set_focus();
+        let _ = window.emit(WINDOW_HIGHLIGHT_EVENT, ());
     }
 }
 
@@ -987,6 +1116,31 @@ fn canonical_file_inside_root(
     }
 
     Ok(canonical_file)
+}
+
+fn user_bin_dir() -> Result<PathBuf, String> {
+    let home = env::var_os("HOME")
+        .map(PathBuf::from)
+        .ok_or_else(|| "failed to locate HOME directory".to_string())?;
+    Ok(home.join(".local").join("bin"))
+}
+
+fn cli_launcher_script(app_exe: &Path) -> String {
+    format!(
+        r#"#!/bin/sh
+APP_EXE={}
+if [ ! -x "$APP_EXE" ]; then
+  echo "mm: markmini executable is not available: $APP_EXE" >&2
+  exit 1
+fi
+nohup "$APP_EXE" "$@" >/dev/null 2>&1 &
+"#,
+        shell_quote(&app_exe.to_string_lossy())
+    )
+}
+
+fn shell_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\\''"))
 }
 
 fn path_to_relative(root_dir: &Path, path: &Path) -> Option<String> {
