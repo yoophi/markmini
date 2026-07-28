@@ -114,5 +114,7 @@ pnpm build
 
 ## 문서
 
-- [빌드 및 설치 가이드](./docs/build-and-install.md)
-- [구현 설계 문서](./docs/implementation-plan.md)
+- [빌드 및 설치 가이드](./docs/build-and-install.md) — 로컬 개발, 빌드, 설치, 검증 절차
+- [구현 설계 문서](./docs/implementation-plan.md) — viewer MVP의 목표와 구조
+- [브랜치 정책](./docs/branch-policy.md) — viewer-only `main`과 editing branch의 작업 경계
+- [Document Tree PR Status](./docs/document-tree-pr-status.md) — document tree 관련 PR stack과 merge/rebuild 기준
