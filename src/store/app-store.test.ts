@@ -6,6 +6,35 @@ import { useAppStore } from "@/store/app-store";
 import { getInitialSession, readMarkdownFile, writeMarkdownFile } from "@/lib/tauri";
 import type { HeadingItem, MarkdownDocument } from "@/types/content";
 
+const localStorageMock = (() => {
+  const values = new Map<string, string>();
+
+  return {
+    clear: () => values.clear(),
+    getItem: (key: string) => values.get(key) ?? null,
+    key: (index: number) => Array.from(values.keys())[index] ?? null,
+    removeItem: (key: string) => {
+      values.delete(key);
+    },
+    setItem: (key: string, value: string) => {
+      values.set(key, value);
+    },
+    get length() {
+      return values.size;
+    },
+  } satisfies Storage;
+})();
+
+Object.defineProperty(globalThis, "localStorage", {
+  configurable: true,
+  value: localStorageMock,
+});
+
+Object.defineProperty(window, "localStorage", {
+  configurable: true,
+  value: localStorageMock,
+});
+
 vi.mock("@/lib/tauri", () => ({
   createMarkdownFile: vi.fn(),
   deleteMarkdownFile: vi.fn(),
