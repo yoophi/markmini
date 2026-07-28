@@ -1,34 +1,67 @@
-import { type KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, ChevronRight, FileText, Folder, FolderOpen } from "lucide-react";
+import { type KeyboardEvent as ReactKeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
+import { ChevronDown, ChevronRight, FileText, Folder, FolderOpen, Search, X } from "lucide-react";
 
 import { fileLabel } from "@/lib/path";
 import { cn } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import type { ScanStatus } from "@/types/content";
+import type { MarkdownFileMetadata, ScanStatus } from "@/types/content";
+
+type DocumentSortMode = "path" | "name" | "modified";
 
 interface FileTreeProps {
   files: string[];
+  fileMetadata: Record<string, MarkdownFileMetadata>;
   scanState: ScanStatus;
   skippedCount: number;
   selectedFile: string | null;
+  favoriteDocuments: string[];
+  recentDocuments: string[];
+  searchQuery: string;
+  sortMode: DocumentSortMode;
+  onSearchQueryChange: (query: string) => void;
+  onSortModeChange: (mode: DocumentSortMode) => void;
   onSelect: (relativePath: string) => void;
 }
 
-export function FileTree({ files, scanState, skippedCount, selectedFile, onSelect }: FileTreeProps) {
-  const tree = useMemo(() => buildTree(files), [files]);
+export function FileTree({
+  files,
+  fileMetadata,
+  scanState,
+  skippedCount,
+  selectedFile,
+  favoriteDocuments,
+  recentDocuments,
+  searchQuery,
+  sortMode,
+  onSearchQueryChange,
+  onSortModeChange,
+  onSelect,
+}: FileTreeProps) {
+  const normalizedSearchQuery = searchQuery.trim().toLocaleLowerCase();
+  const filteredFiles = useMemo(
+    () => sortFiles(filterFiles(files, normalizedSearchQuery), sortMode, fileMetadata),
+    [fileMetadata, files, normalizedSearchQuery, sortMode],
+  );
+  const tree = useMemo(() => buildTree(filteredFiles, sortMode), [filteredFiles, sortMode]);
+  const visibleFavoriteDocuments = useMemo(() => favoriteDocuments.filter((file) => files.includes(file)), [favoriteDocuments, files]);
+  const visibleRecentDocuments = useMemo(() => recentDocuments.filter((file) => files.includes(file)), [files, recentDocuments]);
   const directoryPaths = useMemo(() => collectDirectoryPaths(tree), [tree]);
+  const selectedFileIsFilteredOut = Boolean(normalizedSearchQuery && selectedFile && !filteredFiles.includes(selectedFile));
   const hasInitializedExpansionRef = useRef(false);
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(() => new Set());
   const [focusedPath, setFocusedPath] = useState<string | null>(selectedFile);
   const treeRef = useRef<HTMLUListElement | null>(null);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     setExpandedPaths((current) => {
       const knownDirectories = new Set(directoryPaths);
-      const next = hasInitializedExpansionRef.current
-        ? new Set([...current].filter((path) => knownDirectories.has(path)))
-        : new Set(directoryPaths);
+      const next = normalizedSearchQuery
+        ? new Set(directoryPaths)
+        : hasInitializedExpansionRef.current
+          ? new Set([...current].filter((path) => knownDirectories.has(path)))
+          : new Set(directoryPaths);
 
       for (const path of selectedFile ? ancestorDirectoryPaths(selectedFile) : []) {
         next.add(path);
@@ -37,7 +70,7 @@ export function FileTree({ files, scanState, skippedCount, selectedFile, onSelec
       hasInitializedExpansionRef.current = true;
       return next;
     });
-  }, [directoryPaths, selectedFile]);
+  }, [directoryPaths, normalizedSearchQuery, selectedFile]);
 
   const renderedItems = useMemo(() => flattenVisibleTree(tree, expandedPaths), [expandedPaths, tree]);
   const currentFocusPath =
@@ -75,7 +108,31 @@ export function FileTree({ files, scanState, skippedCount, selectedFile, onSelec
     });
   };
 
-  const handleTreeKeyDown = (event: KeyboardEvent<HTMLUListElement>) => {
+  useEffect(() => {
+    const handleDocumentKeyDown = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "f") {
+        event.preventDefault();
+        searchInputRef.current?.focus();
+      }
+    };
+
+    window.addEventListener("keydown", handleDocumentKeyDown);
+    return () => window.removeEventListener("keydown", handleDocumentKeyDown);
+  }, []);
+
+  const clearSearchQuery = () => {
+    onSearchQueryChange("");
+    searchInputRef.current?.focus();
+  };
+
+  const handleSearchKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
+    if (event.key === "Escape" && searchQuery) {
+      event.preventDefault();
+      clearSearchQuery();
+    }
+  };
+
+  const handleTreeKeyDown = (event: ReactKeyboardEvent<HTMLUListElement>) => {
     if (renderedItems.length === 0 || !currentFocusPath) {
       return;
     }
@@ -149,13 +206,51 @@ export function FileTree({ files, scanState, skippedCount, selectedFile, onSelec
   };
 
   return (
-    <Card className="h-full overflow-hidden">
+    <Card className="flex h-full flex-col overflow-hidden">
       <CardHeader className="border-b border-border/60 pb-4">
         <div className="flex items-center justify-between gap-3">
           <CardTitle className="text-lg">Documents</CardTitle>
           <span className="rounded-md bg-secondary px-2 py-1 text-xs font-medium text-secondary-foreground">
-            {files.length}
+            {normalizedSearchQuery ? `${filteredFiles.length}/${files.length}` : files.length}
           </span>
+        </div>
+        <div className="relative mt-3">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <input
+            ref={searchInputRef}
+            type="search"
+            value={searchQuery}
+            onChange={(event) => onSearchQueryChange(event.target.value)}
+            onKeyDown={handleSearchKeyDown}
+            placeholder="문서 검색"
+            aria-label="문서 검색"
+            className="h-9 w-full rounded-md border border-border bg-background pl-9 pr-9 text-sm text-foreground outline-none transition placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+          />
+          {searchQuery ? (
+            <button
+              type="button"
+              aria-label="문서 검색어 지우기"
+              onClick={clearSearchQuery}
+              className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded text-muted-foreground transition hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          ) : null}
+        </div>
+        <div className="mt-2 flex items-center justify-between gap-2 text-xs text-muted-foreground">
+          <label htmlFor="document-sort-mode" className="font-medium">
+            정렬
+          </label>
+          <select
+            id="document-sort-mode"
+            value={sortMode}
+            onChange={(event) => onSortModeChange(event.target.value as DocumentSortMode)}
+            className="h-8 rounded-md border border-border bg-background px-2 text-xs text-foreground outline-none transition focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <option value="path">경로순</option>
+            <option value="name">이름순</option>
+            <option value="modified">수정시간순</option>
+          </select>
         </div>
         {scanState === "scanning" || skippedCount > 0 ? (
           <div className="mt-2 flex items-center justify-between gap-3 text-xs text-muted-foreground">
@@ -164,13 +259,26 @@ export function FileTree({ files, scanState, skippedCount, selectedFile, onSelec
           </div>
         ) : null}
       </CardHeader>
-      <CardContent className="h-[calc(100%-78px)] p-0">
+      <CardContent className="min-h-0 flex-1 p-0">
         <ScrollArea className="h-full">
           <div className="px-2 py-3">
+            {selectedFileIsFilteredOut ? (
+              <div className="mb-3 rounded-md border border-border bg-muted/40 px-3 py-2 text-xs leading-5 text-muted-foreground">
+                현재 선택된 문서는 검색 결과에 없습니다. 검색어를 지우면 다시 표시됩니다.
+              </div>
+            ) : null}
+            {visibleFavoriteDocuments.length > 0 ? (
+              <DocumentShortcutSection title="Favorites" documents={visibleFavoriteDocuments} selectedFile={selectedFile} onSelect={onSelect} />
+            ) : null}
+            {visibleRecentDocuments.length > 0 ? (
+              <DocumentShortcutSection title="Recent" documents={visibleRecentDocuments} selectedFile={selectedFile} onSelect={onSelect} />
+            ) : null}
             {tree.length === 0 ? (
               <div className="rounded-md border border-dashed border-border px-3 py-8 text-center">
                 <Folder className="mx-auto h-5 w-5 text-muted-foreground" />
-                <p className="mt-3 text-sm leading-6 text-muted-foreground">표시할 markdown 파일이 없습니다.</p>
+                <p className="mt-3 text-sm leading-6 text-muted-foreground">
+                  {normalizedSearchQuery ? "검색 결과가 없습니다." : "표시할 markdown 파일이 없습니다."}
+                </p>
               </div>
             ) : (
               <ul
@@ -186,6 +294,9 @@ export function FileTree({ files, scanState, skippedCount, selectedFile, onSelec
                     node={node}
                     selectedFile={selectedFile}
                     onSelect={onSelect}
+                    searchQuery={normalizedSearchQuery}
+                    modifiedAt={fileMetadata[node.path]?.modifiedAt ?? null}
+                    showModifiedTime={sortMode === "modified"}
                     depth={depth}
                     expanded={expandedPaths.has(node.path)}
                     focused={currentFocusPath === node.path}
@@ -209,10 +320,54 @@ interface TreeNodeData {
   children: TreeNodeData[];
 }
 
+function DocumentShortcutSection({
+  title,
+  documents,
+  selectedFile,
+  onSelect,
+}: {
+  title: string;
+  documents: string[];
+  selectedFile: string | null;
+  onSelect: (relativePath: string) => void;
+}) {
+  return (
+    <div className="mb-3 rounded-md border border-border bg-muted/30 p-2">
+      <p className="px-1 pb-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">{title}</p>
+      <div className="space-y-0.5">
+        {documents.map((path) => {
+          const isSelected = selectedFile === path;
+          return (
+            <button
+              key={path}
+              type="button"
+              aria-current={isSelected ? "page" : undefined}
+              onClick={() => onSelect(path)}
+              className={cn(
+                "flex min-h-8 w-full items-center gap-2 rounded px-2 py-1 text-left text-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
+                isSelected ? "bg-primary text-primary-foreground" : "text-foreground hover:bg-accent hover:text-accent-foreground",
+              )}
+            >
+              <FileText className={cn("h-4 w-4 shrink-0", isSelected ? "opacity-90" : "text-muted-foreground")} />
+              <span className="min-w-0 flex-1 truncate">
+                <span className="block truncate">{fileLabel(path)}</span>
+                <span className={cn("block truncate text-xs", isSelected ? "text-primary-foreground/75" : "text-muted-foreground")}>{path}</span>
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function TreeNode({
   node,
   selectedFile,
   onSelect,
+  searchQuery,
+  modifiedAt,
+  showModifiedTime,
   depth,
   expanded,
   focused,
@@ -222,6 +377,9 @@ function TreeNode({
   node: TreeNodeData;
   selectedFile: string | null;
   onSelect: (relativePath: string) => void;
+  searchQuery: string;
+  modifiedAt: number | null;
+  showModifiedTime: boolean;
   depth: number;
   expanded: boolean;
   focused: boolean;
@@ -231,6 +389,9 @@ function TreeNode({
   const isDirectory = node.kind === "directory";
   const isSelected = selectedFile === node.path;
   const label = isDirectory ? node.name : fileLabel(node.path);
+  const normalizedLabel = label.toLocaleLowerCase();
+  const pathMatchesOnly = Boolean(searchQuery && !normalizedLabel.includes(searchQuery) && node.path.toLocaleLowerCase().includes(searchQuery));
+  const metadataContext = !isDirectory && showModifiedTime ? formatModifiedTime(modifiedAt) : null;
 
   if (node.kind === "directory") {
     return (
@@ -256,7 +417,7 @@ function TreeNode({
             <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-hover:text-accent-foreground" />
           )}
           {expanded ? <FolderOpen className="h-4 w-4 shrink-0" /> : <Folder className="h-4 w-4 shrink-0" />}
-          <span className="truncate font-medium">{label}</span>
+          <span className="truncate font-medium">{renderHighlightedText(label, searchQuery, false)}</span>
           <span className="ml-auto rounded bg-muted px-1.5 py-0.5 text-[11px] tabular-nums text-muted-foreground">
             {countLeafNodes(node)}
           </span>
@@ -277,7 +438,7 @@ function TreeNode({
         onFocus={() => onFocusItem(node.path)}
         onClick={() => onSelect(node.path)}
         className={cn(
-          "group flex h-9 w-full items-center gap-2 rounded-md pr-2 text-left text-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
+          "group flex min-h-9 w-full items-center gap-2 rounded-md py-1 pr-2 text-left text-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
           treeNodeIndentClass(depth),
           isSelected
             ? "bg-primary text-primary-foreground shadow-sm"
@@ -286,10 +447,57 @@ function TreeNode({
       >
         <span className="h-4 w-4 shrink-0" aria-hidden="true" />
         <FileText className={cn("h-4 w-4 shrink-0", isSelected ? "opacity-90" : "text-muted-foreground")} />
-        <span className="truncate">{label}</span>
+        <span className="min-w-0 flex-1 truncate">
+          <span className="truncate">{renderHighlightedText(label, searchQuery, isSelected)}</span>
+          {pathMatchesOnly ? (
+            <span className={cn("mt-0.5 block truncate text-xs", isSelected ? "text-primary-foreground/75" : "text-muted-foreground")}>
+              {renderHighlightedText(node.path, searchQuery, isSelected)}
+            </span>
+          ) : metadataContext ? (
+            <span className={cn("mt-0.5 block truncate text-xs", isSelected ? "text-primary-foreground/75" : "text-muted-foreground")}>
+              {metadataContext}
+            </span>
+          ) : null}
+        </span>
       </button>
     </li>
   );
+}
+
+function renderHighlightedText(text: string, normalizedSearchQuery: string, isSelected: boolean) {
+  if (!normalizedSearchQuery) {
+    return text;
+  }
+
+  const matchIndex = text.toLocaleLowerCase().indexOf(normalizedSearchQuery);
+  if (matchIndex === -1) {
+    return text;
+  }
+
+  const before = text.slice(0, matchIndex);
+  const match = text.slice(matchIndex, matchIndex + normalizedSearchQuery.length);
+  const after = text.slice(matchIndex + normalizedSearchQuery.length);
+
+  return (
+    <>
+      {before}
+      <mark className={cn("rounded px-0.5", isSelected ? "bg-primary-foreground/25 text-inherit" : "bg-amber-200 text-amber-950")}>
+        {match}
+      </mark>
+      {after}
+    </>
+  );
+}
+
+function formatModifiedTime(modifiedAt: number | null) {
+  if (!modifiedAt) {
+    return "수정시간 없음";
+  }
+
+  return `수정: ${new Intl.DateTimeFormat("ko-KR", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(new Date(modifiedAt))}`;
 }
 
 function treeNodeIndentClass(depth: number) {
@@ -337,14 +545,46 @@ function ancestorDirectoryPaths(path: string) {
   return segments.map((_, index) => segments.slice(0, index + 1).join("/"));
 }
 
-function buildTree(files: string[]) {
+function filterFiles(files: string[], normalizedSearchQuery: string) {
+  if (!normalizedSearchQuery) {
+    return files;
+  }
+
+  return files.filter((file) => {
+    const normalizedPath = file.toLocaleLowerCase();
+    const normalizedLabel = fileLabel(file).toLocaleLowerCase();
+    return normalizedPath.includes(normalizedSearchQuery) || normalizedLabel.includes(normalizedSearchQuery);
+  });
+}
+
+function sortFiles(files: string[], sortMode: DocumentSortMode, fileMetadata: Record<string, MarkdownFileMetadata>) {
+  return [...files].sort((left, right) => {
+    if (sortMode === "modified") {
+      const leftModified = fileMetadata[left]?.modifiedAt ?? 0;
+      const rightModified = fileMetadata[right]?.modifiedAt ?? 0;
+      if (leftModified !== rightModified) {
+        return rightModified - leftModified;
+      }
+    }
+    if (sortMode === "name") {
+      const labelComparison = fileLabel(left).localeCompare(fileLabel(right));
+      if (labelComparison !== 0) {
+        return labelComparison;
+      }
+    }
+
+    return left.localeCompare(right);
+  });
+}
+
+function buildTree(files: string[], sortMode: DocumentSortMode) {
   const root: TreeNodeData[] = [];
 
   for (const file of files) {
     insertNode(root, file.split("/"), "", file);
   }
 
-  return sortTree(root);
+  return sortTree(root, sortMode);
 }
 
 function insertNode(nodes: TreeNodeData[], segments: string[], parentPath: string, originalPath: string) {
@@ -377,17 +617,22 @@ function insertNode(nodes: TreeNodeData[], segments: string[], parentPath: strin
   }
 }
 
-function sortTree(nodes: TreeNodeData[]): TreeNodeData[] {
+function sortTree(nodes: TreeNodeData[], sortMode: DocumentSortMode): TreeNodeData[] {
   return nodes
     .map((node) => ({
       ...node,
-      children: sortTree(node.children),
+      children: sortTree(node.children, sortMode),
     }))
     .sort((left, right) => {
-      if (left.kind !== right.kind) {
+      if (sortMode === "path" && left.kind !== right.kind) {
         return left.kind === "directory" ? -1 : 1;
       }
 
-      return left.name.localeCompare(right.name);
+      const labelComparison = left.name.localeCompare(right.name);
+      if (labelComparison !== 0) {
+        return labelComparison;
+      }
+
+      return left.path.localeCompare(right.path);
     });
 }
