@@ -35,6 +35,8 @@ Editing-branch work may include:
 
 ## PR guidance
 
+For the current editing cleanup checklist, see [Markdown Editing Consolidation Checklist](./markdown-editing-consolidation.md).
+
 - Viewer stabilization PRs should target `main`.
 - Editing PRs should target the editing branch or a branch stacked on top of it.
 - If a change touches both viewing and editing concerns, split it into two PRs when practical.
