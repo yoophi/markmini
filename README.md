@@ -114,5 +114,6 @@ pnpm build
 
 ## 문서
 
+- [기여 가이드](./CONTRIBUTING.md)
 - [빌드 및 설치 가이드](./docs/build-and-install.md)
 - [구현 설계 문서](./docs/implementation-plan.md)
