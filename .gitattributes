@@ -1,0 +1,28 @@
+* text=auto eol=lf
+
+# Images and icons
+*.ico binary
+*.icns binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.svg text eol=lf
+
+# Archives and packaged installers
+*.zip binary
+*.tar binary
+*.tar.gz binary
+*.tgz binary
+*.dmg binary
+*.app binary
+
+# Fonts and media
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.otf binary
+*.mp3 binary
+*.mp4 binary
+*.mov binary
